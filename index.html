@@ -1,1 +1,890 @@
-<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#17384f"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="default"><meta name="apple-mobile-web-app-title" content="EMC TS CEM"><link rel="manifest" href="manifest.webmanifest"><link rel="apple-touch-icon" href="icon-192.png"><link rel="stylesheet" href="style.css"><title>EMC TS CONSULTING – Déclinaison CEM</title></head><body><header><h1>EMC TS CONSULTING</h1><p>Déclinaison CEM • PWA V0.1</p></header><main><div id="diag" class="ok">Démarrage du moteur…</div><section><h2>Balayage BCI / CS114</h2><div class="grid"><label>Courant BCI (mA)<input id="I" type="number" value="100"></label><label>ZCM (Ω)<input id="Z" type="number" value="50"></label><label>Début (MHz)<input id="f0" type="number" value="0.25"></label><label>Fin (MHz)<input id="f1" type="number" value="200"></label><label>Points<input id="np" type="number" value="1000"></label><label>Échelle<select id="scale"><option value="log">Logarithmique</option><option value="lin">Linéaire</option></select></label></div></section><section><h2>Faisceau / câble</h2><div class="grid"><label>Configuration<select id="shield"><option value="yes">Blindé</option><option value="no">Non blindé</option></select></label><label>Longueur (m)<input id="L" type="number" value="1"></label><label>VF<input id="vf" type="number" value="0.70" step="0.01"></label><label>λ/4 théorique<div id="qtr" class="read">—</div></label></div></section><section id="shieldSec"><h2>Blindage</h2><div class="grid"><label>Méthode<select id="method"><option value="db">Atténuation effective</option><option value="zt">ZT</option></select></label><label id="attWrap">Atténuation (dB)<input id="att" type="number" value="12"></label><label id="ztWrap" class="hide">ZT (mΩ/m)<input id="zt" type="number" value="10"></label><label id="bciWrap" class="hide check"><input id="useBci" type="checkbox" checked> Utiliser le courant BCI injecté</label><label id="ishWrap" class="hide">Courant blindage mesuré (mA)<input id="ish" type="number" value="100"></label></div></section><section><h2>Interface / carte</h2><div class="grid"><label>Connecteur (dB)<input id="conn" type="number" value="0"></label><label>Filtre (dB)<input id="filter" type="number" value="20"></label><label>Mode carte<select id="cmode"><option value="det">Valeur à déterminer</option><option value="known">Seuil connu</option></select></label><label id="limWrap" class="hide">Seuil carte (mV)<input id="limit" type="number" value="10"></label></div></section><div class="buttons"><button id="calc">Recalculer</button><button id="reset" class="alt">Nouveau calcul</button><button id="client" class="alt">Fiche client</button></div><section><h2>Résultat</h2><div class="cards"><div>Maximum<b id="max">—</b></div><div>1er λ/4<b id="crit">—</b></div><div>Marge<b id="margin">—</b></div></div><div class="chart"><svg id="chart" viewBox="0 0 1000 420" aria-label="Graphe du niveau carte"></svg></div><p class="small">Axe Y : dBµV. Les repères λ/4 sont des repères théoriques de longueur électrique, pas des résonances garanties.</p></section></main><script src="app.js"></script></body></html>
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Prototype CS114 – Déclinaison</title>
+<style>
+:root{font-family:Arial,sans-serif;color:#17202a;background:#f4f6f8}
+body{margin:0}.wrap{max-width:1200px;margin:auto;padding:18px}
+h1{font-size:24px;margin:0 0 5px}.sub{color:#607080;margin-bottom:16px}
+.toolbar,.card{background:#fff;border:1px solid #d8dee5;border-radius:12px;padding:14px;margin-bottom:14px}
+.toolbar{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+button,select,input{font:inherit;padding:8px;border:1px solid #aeb8c2;border-radius:7px}
+button{cursor:pointer;background:#fff}.active{background:#17202a;color:white}
+.flow{display:flex;align-items:center;gap:8px;overflow-x:auto;padding:18px 4px}
+.node{min-width:135px;min-height:68px;border:2px solid #566573;border-radius:8px;background:white;padding:10px;display:flex;align-items:center;justify-content:center;text-align:center;cursor:pointer}
+.node.sel{outline:4px solid #cbd5df}.arrow{font-size:26px;color:#7b8794}.detail{font-size:12px;color:#657786;text-align:center}
+.detailBtn{display:block;margin:8px auto 0;padding:5px 9px;font-size:12px;color:#465563;background:#f7f9fa;border:1px solid #cbd3da;border-radius:6px;white-space:nowrap}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+label{display:block;font-size:13px;margin:8px 0 3px}.fixed{padding:9px;background:#eef2f5;border-radius:7px}
+table{width:100%;border-collapse:collapse;margin-top:10px}th,td{border-bottom:1px solid #e1e6ea;padding:7px;text-align:left;font-size:13px}
+.small{font-size:12px;color:#657786}.result{font-size:20px;font-weight:bold}
+@media(max-width:800px){.grid{grid-template-columns:1fr}}
+
+.modalBack{display:none;position:fixed;inset:0;background:rgba(0,0,0,.38);z-index:1000;padding:20px;overflow:auto}
+.modalBox{max-width:980px;margin:25px auto;background:#fff;border-radius:12px;border:1px solid #cfd6dc;padding:18px;box-shadow:0 10px 35px rgba(0,0,0,.22)}
+.modalHead{display:flex;justify-content:space-between;align-items:center;gap:12px;border-bottom:1px solid #e1e6ea;padding-bottom:10px;margin-bottom:12px}
+.modalHead h2{margin:0;font-size:20px}.closeBtn{font-size:20px;line-height:1;padding:5px 10px}
+.modalGrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:800px){.modalGrid{grid-template-columns:1fr}}
+
+</style>
+
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0b2f4f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="EMC TS CS114">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+
+</head>
+<body><div class="wrap">
+<h1>CS114 — Prototype de déclinaison équipement → carte <span style="font-size:14px;background:#17202a;color:#fff;padding:5px 9px;border-radius:7px;vertical-align:middle">V5.6</span></h1>
+<div class="sub">Prototype de travail pour valider l’interface et le modèle avant intégration dans la PWA.</div>
+
+<div class="toolbar">
+<b>Mode :</b>
+<button id="simple" class="active" onclick="setMode('simple')">Simple</button>
+<button id="advanced" onclick="setMode('advanced')">Avancé</button>
+<label style="margin:0">Niveau CS114 injecté (mA)</label><input id="iin" type="number" value="100" min="0" step="1" oninput="calc()">
+</div>
+
+<div class="card">
+<div class="flow">
+<div><div class="node" onclick="pick('charge')">Charge</div></div><div class="arrow">→</div>
+<div><div class="node sel" id="harnaisNode" onclick="openHarness()">Harnais extérieur</div><button class="detailBtn" onclick="openHarness()">Détail harnais</button></div><div class="arrow">→</div>
+<div><div class="node" id="connectorNode" onclick="openConnector()">Connecteur<br>entrée équipement</div><button class="detailBtn" onclick="openConnector()">Détail connecteur</button></div><div class="arrow">→</div>
+<div><div class="node" id="internalNode" onclick="openInternal()">Câblage interne<br><small id="internalSummary">Non défini</small></div><button class="detailBtn" onclick="openInternal()">Détail câblage interne</button></div><div class="arrow">→</div>
+<div><div class="node" id="cardConnectorNode" onclick="openCardConnector()">Connecteur<br>entrée carte<br><small>Transparent — 0 dB</small></div><button class="detailBtn" onclick="openCardConnector()">Détail connecteur carte</button></div><div class="arrow">→</div>
+<div><div class="node" id="cardFilterNode" onclick="openCardFilter()">Type filtrage<br>entrée et atténuation<br><small id="cardFilterSummary">Non défini</small></div><button class="detailBtn" onclick="openCardFilter()">Détail filtrage</button></div><div class="arrow">→</div>
+<div><div class="node" onclick="pick('resultat')">Résultat<br>déclinaison</div></div>
+</div>
+</div>
+
+<div class="grid">
+<div class="card" id="panel">
+<h2 style="margin-top:0">Détail harnais extérieur</h2>
+<div class="fixed"><b>Hauteur au-dessus du plan de masse :</b> 5 cm — fixe pour ce modèle CS114</div>
+<label>Longueur du harnais (m)</label><input id="len" type="number" value="1" min=".01" step=".1" oninput="calc()">
+<label>Diamètre extérieur du faisceau (mm)</label><input id="bundleD" type="number" value="10" min=".5" step=".1" oninput="calc()">
+<label>Nombre de conducteurs</label><input id="ncond" type="number" value="4" min="1" max="64" step="1" onchange="buildConductors();calc()">
+<label>Blindage</label><select id="shield" onchange="calc()"><option>Non blindé</option><option>Blindé</option></select>
+
+<div id="adv" style="display:none">
+<label>Capacité parasite harnais → plan de masse</label>
+<select id="cpmode" onchange="toggleCp();calc()"><option value="calc">Calculée automatiquement — géométrie faisceau / plan</option><option value="fixed">Imposée</option></select>
+<div id="cpfixed" style="display:none"><label>Cp totale (pF)</label><input id="cp" type="number" value="100" step="1" oninput="calc()"></div>
+<label>Inductance parasite globale Lp (nH) — optionnelle</label><input id="lp" type="number" value="0" min="0" step="1" oninput="calc()">
+<div id="shieldBox" style="display:none">
+<label>ZT du blindage (mΩ/m) — valeur provisoire constante</label><input id="zt" type="number" value="10" min="0" step="1" oninput="calc()">
+</div>
+<h3>Charge — terminaisons des conducteurs</h3>
+<div class="small">Impédances situées à l’extrémité du harnais opposée à la carte électronique. Chaque conducteur est traité séparément. Pour le mode commun, il faut aussi préciser vers quelle référence se ferme réellement la terminaison.</div>
+
+<label>Retour de mode commun équivalent</label>
+<div class="small">Valeur calculée automatiquement à partir de la définition détaillée du câblage. Aucune valeur globale n’est imposée.</div>
+<input id="returnMcDisplay" type="text" value="—" readonly style="background:#f4f6f8;font-weight:700">
+
+<table>
+<thead><tr><th>#</th><th>Type</th><th>R (Ω)</th><th>C (nF)</th><th>Référence</th></tr></thead>
+<tbody id="conds"></tbody>
+</table>
+</div>
+</div>
+
+<div>
+<div class="card">
+<h2 style="margin-top:0">Calcul ZMC — point de test</h2>
+<label>Fréquence d'observation (MHz)</label><input id="freq" type="number" value="10" min=".25" max="400" step=".25" oninput="calc()">
+<p>Cp utilisée : <b><span id="cpout">—</span> pF</b></p>
+<p>Impédance équivalente du réseau de retour : <b><span id="zterm">—</span> Ω</b></p>
+<p class="result">|ZMC| = <span id="zmc">—</span> Ω</p>
+<p>Courant CS114 injecté : <b><span id="icur">—</span> mA</b></p>
+<p>Tension MC correspondante (I × |ZMC|) : <b><span id="umc">—</span> V</b></p>
+<div class="small"><b>État du modèle :</b> l’architecture Charge/Harnais est en cours de validation. Le modèle distingue maintenant les terminaisons revenant directement au châssis, celles revenant au 0 V de la charge, et les conducteurs flottants. Aucun couplage global 0 V→châssis n’est imposé : chaque chemin doit être défini explicitement. La valeur automatique de Cp reste provisoire. Les éléments déjà validés ne sont pas modifiés.</div>
+</div>
+<div class="card"><b>Étape suivante :</b> cliquer les blocs du synoptique permettra d’éditer leurs paramètres. Pour l’instant, le bloc Harnais est le premier réellement implémenté.</div>
+</div>
+</div>
+</div>
+<script>
+let mode='simple';
+let harnessWireState=[];
+
+function setMode(m){mode=m;document.getElementById('simple').classList.toggle('active',m==='simple');document.getElementById('advanced').classList.toggle('active',m==='advanced');document.getElementById('adv').style.display=m==='advanced'?'block':'none';calc()}
+function pick(x){if(x!=='harnais') alert("Bloc « "+x+" » : paramètres à définir dans l'étape suivante.");}
+function toggleCp(){document.getElementById('cpfixed').style.display=document.getElementById('cpmode').value==='fixed'?'block':'none'}
+function buildConductors(){
+ let n=Math.max(1,Math.min(64,+document.getElementById('ncond').value||1)), b=document.getElementById('conds'); b.innerHTML='';
+ for(let i=1;i<=n;i++) b.insertAdjacentHTML('beforeend',`<tr>
+<td>${i}</td>
+<td><select class="ctype" onchange="calc()">
+<option value="R">R</option><option value="C">C</option><option value="RCs">RC série</option><option value="RCp">RC parallèle</option><option value="open">Ouvert</option>
+</select></td>
+<td><input class="cr" value="1000" type="number" min="0" oninput="calc()" style="width:85px"></td>
+<td><input class="cc" value="0" type="number" min="0" oninput="calc()" style="width:75px"></td>
+<td><select class="cref" onchange="calc()">
+<option value="chassis">Châssis — via Z(f)</option>
+<option value="zero">0 V charge</option>
+<option value="floating">Flottant</option>
+</select></td>
+</tr>`);
+}
+
+function geometricBundleCp(length_m, diameter_mm){
+  const eps0 = 8.8541878128e-12;
+  const h = 0.05;
+  const r = Math.max((diameter_mm/1000)/2, 1e-6);
+  if (h <= r) return NaN;
+  const cpPerM = (2*Math.PI*eps0)/Math.acosh(h/r);
+  return cpPerM * length_m;
+}
+
+function calc(){
+ const f=(+document.getElementById('freq').value||10)*1e6, L=+document.getElementById('len').value||1;
+ // Prototype Cp estimate: intentionally transparent placeholder, to be replaced by validated harness geometry model.
+ let cp;
+ if(document.getElementById('cpmode').value==='fixed') cp=(+document.getElementById('cp').value||0)*1e-12;
+ else cp=geometricBundleCp(L, (+document.getElementById('bundleD').value||10));
+ let Yre=0,Yim=2*Math.PI*f*cp; // harnais -> plan de masse
+ let Y0re=0,Y0im=0; // somme des branches conducteurs -> 0 V charge
+
+ function branchZ(type,R,C){
+   let zr=0,zi=0;
+   if(type==='open') return null;
+   if(type==='R'){ if(R<=0) return {r:0,i:0,short:true}; zr=R; }
+   if(type==='C'){ if(C<=0)return null; zi=-1/(2*Math.PI*f*C); }
+   if(type==='RCs'){ if(C<=0){ if(R<=0) return {r:0,i:0,short:true}; zr=R; } else {zr=R;zi=-1/(2*Math.PI*f*C);} }
+   if(type==='RCp'){
+      let yr=R>0?1/R:0, yi=2*Math.PI*f*C, den=yr*yr+yi*yi;
+      if(den===0)return null; zr=yr/den;zi=-yi/den;
+   }
+   return {r:zr,i:zi};
+ }
+ function addAdmittance(z, target){
+   if(!z) return target;
+   if(z.short){ target.r += 1e12; return target; }
+   let den=z.r*z.r+z.i*z.i;
+   if(den>0){target.r += z.r/den; target.i += -z.i/den;}
+   return target;
+ }
+
+ document.querySelectorAll('#conds tr').forEach(tr=>{
+   let type=tr.querySelector('.ctype').value;
+   let R=+tr.querySelector('.cr').value||0;
+   let C=(+tr.querySelector('.cc').value||0)*1e-9;
+   let ref=tr.querySelector('.cref').value;
+   if(ref==='floating') return;
+   let z=branchZ(type,R,C);
+   if(ref==='chassis'){
+      let t={r:Yre,i:Yim}; addAdmittance(z,t); Yre=t.r;Yim=t.i;
+   } else if(ref==='zero'){
+      let t={r:Y0re,i:Y0im}; addAdmittance(z,t); Y0re=t.r;Y0im=t.i;
+   }
+ });
+
+ // No implicit global 0V->chassis impedance is added here.
+ // Any return path must be explicitly documented conductor by conductor.
+
+ let lp=(+document.getElementById('lp').value||0)*1e-9;
+ let den=Yre*Yre+Yim*Yim, zr=den?Yre/den:Infinity, zi=den?-Yim/den:0;
+ zi += 2*Math.PI*f*lp;
+ let z=Math.sqrt(zr*zr+zi*zi);
+ let zt=Yre===0&&Yim===0?Infinity:1/Math.sqrt(Yre*Yre+Yim*Yim);
+ let imA=+document.getElementById('iin').value||0;
+ document.getElementById('cpout').textContent=(cp*1e12).toFixed(1);
+ document.getElementById('zterm').textContent=isFinite(zt)?zt.toFixed(2):'∞';
+ const rmc=document.getElementById('returnMcDisplay'); if(rmc) rmc.value=isFinite(zt)?(zt.toFixed(2)+' Ω @ '+(+document.getElementById('freq').value||0)+' MHz'):'∞';
+ document.getElementById('zmc').textContent=isFinite(z)?z.toFixed(2):'∞';
+ document.getElementById('icur').textContent=imA.toFixed(1);
+ document.getElementById('umc').textContent=isFinite(z)?((imA/1000)*z).toFixed(3):'∞';
+ // V5.6.5: evaluate both endpoint impedances at the active frequency; state is preserved for the frequency engine.
+ window.lastTerminationEvaluation=harnessWireState.map(w=>({func:w.func,charge_ohm:impedanceMag(endpointZ(w.cl,f)),equipement_ohm:impedanceMag(endpointZ(w.eq,f))}));
+ document.getElementById('shieldBox').style.display=document.getElementById('shield').value==='Blindé'?'block':'none';
+}
+buildConductors();calc();
+</script>
+<div id="harnessModal" class="modalBack" onclick="if(event.target===this) closeHarness()">
+  <div class="modalBox">
+    <div class="modalHead">
+      <div>
+        <h2>Définition fine du harnais extérieur — V5.6.5</h2>
+        <div class="small">Configuration CS114 — hauteur au-dessus du plan de masse fixée à 5 cm — calcul jusqu’à 400 MHz.</div>
+      </div>
+      <button class="closeBtn" onclick="closeHarness()" aria-label="Fermer">×</button>
+    </div>
+
+    <div class="modalGrid">
+      <div>
+        <div class="fixed"><b>Hauteur harnais / plan de masse :</b> 5 cm — valeur fixe validée</div>
+        <label>Longueur du harnais (m)</label>
+        <input id="m_len" type="number" value="1" min=".01" step=".1" oninput="syncHarnessFromModal()">
+<label>Diamètre extérieur du faisceau (mm)</label><input id="m_bundleD" type="number" value="10" min=".5" step=".1">
+
+        <label>Nombre de conducteurs</label>
+        <input id="m_ncond" type="number" value="4" min="1" max="64" step="1" onchange="modalBuildConductors()">
+
+        <label>Blindage</label>
+        <select id="m_shield" onchange="syncHarnessFromModal();modalShield()">
+          <option>Non blindé</option><option>Blindé</option>
+        </select>
+
+        <label>Capacité parasite harnais → plan de masse</label>
+        <select id="m_cpmode" onchange="modalCp();syncHarnessFromModal()">
+          <option value="calc">Calculée automatiquement — géométrie faisceau / plan</option>
+          <option value="fixed">Imposée</option>
+        </select>
+        <div id="m_cpfixed" style="display:none">
+          <label>Cp totale (pF)</label>
+          <input id="m_cp" type="number" value="100" step="1" oninput="syncHarnessFromModal()">
+        </div>
+
+        <label>Inductance parasite globale Lp (nH) — optionnelle</label>
+        <input id="m_lp" type="number" value="0" min="0" step="1" oninput="syncHarnessFromModal()">
+
+        <label>Modèle de calcul</label>
+        <select id="m_calcmodel" onchange="modalCalcModel()">
+          <option value="standard">Standard — modèle actuel</option>
+          <option value="lumped">Avancé — modèle lumpé RLC</option>
+        </select>
+        <div id="m_lumpedBox" style="display:none;padding:8px 10px;margin-top:7px;background:#f7f9fa;border:1px solid #d8dee5;border-radius:7px">
+          <div class="small"><b>Option client — calcul complexe.</b> Le modèle standard reste le calcul par défaut. Ces paramètres RLC sont préparés séparément afin de ne modifier aucun résultat existant tant que l’option n’est pas activée.</div>
+          <label>R parasite globale du harnais (Ω)</label><input id="m_lumpedR" type="number" value="0" min="0" step="any">
+          <label>L parasite globale du harnais (nH)</label><input id="m_lumpedL" type="number" value="0" min="0" step="any">
+          <label>C parasite globale vers référence (pF)</label><input id="m_lumpedC" type="number" value="0" min="0" step="any">
+        </div>
+
+        <div id="m_shieldBox" style="display:none">
+          <label>ZT du blindage (mΩ/m) — provisoire</label>
+          <input id="m_zt" type="number" value="10" min="0" step="1" oninput="syncHarnessFromModal()">
+        </div>
+      </div>
+
+      <div>
+        <h3 style="margin-top:0">Charge — retour de mode commun</h3>
+        <label>Retour de mode commun équivalent</label>
+        <input type="text" value="— calculé après définition du câblage —" readonly style="background:#f4f6f8;font-weight:700">
+        <div class="small">Aucune charge globale n’est saisie ici : le retour est déduit des terminaisons définies conducteur par conducteur.</div>
+      </div>
+    </div>
+
+    <h3>Définition conducteur par conducteur</h3>
+    <div style="padding:8px 10px;margin-bottom:8px;background:#eef2f5;border-radius:7px">
+      <b>V5.6.5 :</b> les colonnes <b>Fonction</b> et <b>Retour / référence</b> doivent être visibles ci-dessous.
+    </div>
+    <div class="small">Chaque fil possède sa fonction, son type de terminaison et son chemin de retour. Pour un signal ou une alimentation, le menu Terminaison affiche uniquement les valeurs nécessaires. Pour un GND / 0 V relié au châssis, la liaison peut être directe (0 Ω), définie par une impédance Z (Ω), réalisée par une capacité C d’équipotentialité (nF), ou laissée ouverte/flottante.</div>
+    <div style="overflow-x:auto">
+      <table>
+        <thead><tr><th colspan="6">Définition des deux extrémités de chaque conducteur</th></tr></thead>
+        <tbody id="m_conds"></tbody>
+      </table>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:15px">
+      <button onclick="closeHarness()">Fermer</button>
+      <button class="active" onclick="applyHarness()">Appliquer au calcul</button>
+    </div>
+  </div>
+</div>
+
+
+<div id="connectorModal" class="modalBack" onclick="if(event.target===this) closeConnector()">
+  <div class="modalBox">
+    <div class="modalHead"><div><h2>Connecteur entrée équipement — V5.6.5</h2><div class="small">Le nombre de voies est hérité automatiquement du harnais extérieur.</div></div><button class="closeBtn" onclick="closeConnector()">×</button></div>
+    <label>Type de connecteur / interface d’entrée</label>
+    <select id="connectorMode" onchange="connectorModeChanged()"><option value="transparent">Transparent — aucun filtrage</option><option value="filtered">Filtrant — filtrage défini par conducteur</option></select>
+    <div id="connectorTransparent" class="fixed" style="margin-top:10px"><b>Transparent :</b> aucun composant n’est ajouté au modèle électrique.</div>
+    <div id="connectorFiltered" style="display:none;margin-top:12px">
+      <div class="small">Les fils ci-dessous proviennent du harnais. Aucun fil n’est recréé ici. Pour chaque voie, choisir le filtre et renseigner toutes les valeurs affichées.</div>
+      <div id="connectorRows" style="margin-top:10px"></div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:15px"><button onclick="closeConnector()">Fermer</button><button class="active" onclick="applyConnector()">Appliquer</button></div>
+  </div>
+</div>
+
+<div id="internalModal" class="modalBack" style="display:none">
+  <div class="modalBox">
+    <div class="modalHead">
+      <h2>Détail câblage interne</h2>
+      <button class="xBtn" onclick="closeInternal()">×</button>
+    </div>
+
+    <label>Type de liaison interne
+      <select id="internalType" onchange="renderInternalFields()">
+        <option value="">— Sélectionner —</option>
+        <option value="Fil non blindé">Fil non blindé</option>
+        <option value="Fil blindé">Fil blindé</option>
+        <option value="Nappe non blindée">Nappe non blindée</option>
+        <option value="Nappe blindée">Nappe blindée</option>
+        <option value="Câble coaxial blindé">Câble coaxial blindé</option>
+      </select>
+    </label>
+
+    <div id="internalFields" style="margin-top:14px"></div>
+
+    <div style="margin-top:16px;display:flex;gap:10px;justify-content:flex-end">
+      <button onclick="closeInternal()">Annuler</button>
+      <button class="primary" onclick="applyInternal()">Appliquer au calcul</button>
+    </div>
+  </div>
+</div>
+<div id="cardConnectorModal" class="modalBack" style="display:none">
+  <div class="modalBox">
+    <div class="modalHead"><h2>Connecteur entrée carte</h2><button class="xBtn" onclick="closeCardConnector()">×</button></div>
+    <p><b>Transparent — 0 dB</b></p>
+    <p class="hint">Aucune atténuation ni impédance supplémentaire n’est attribuée au connecteur d’entrée carte.</p>
+    <div style="margin-top:16px;display:flex;justify-content:flex-end"><button class="primary" onclick="closeCardConnector()">OK</button></div>
+  </div>
+</div>
+
+<div id="cardFilterModal" class="modalBack" style="display:none">
+  <div class="modalBox">
+    <div class="modalHead"><h2>Filtrage entrée carte</h2><button class="xBtn" onclick="closeCardFilter()">×</button></div>
+
+    <label>Topologie du filtre
+      <select id="cardFilterType" onchange="renderCardFilterFields()">
+        <option value="">— Sélectionner —</option>
+        <option value="none">Aucun — 0 dB</option>
+        <option value="R">R</option>
+        <option value="C">C</option>
+        <option value="RC">RC — R série + C shunt</option>
+        <option value="LC">LC — L série + C shunt</option>
+        <option value="CL">CL — C shunt + L série</option>
+      </select>
+    </label>
+
+    <div id="cardFilterFields" style="margin-top:14px"></div>
+
+    <div id="cardLoadBlock" style="margin-top:18px">
+      <h3>Impédance aval carte</h3>
+      <p class="hint">Impédance de la fonction électronique située après le filtre. Aucune valeur par défaut n’est imposée.</p>
+      <label>Type d’impédance aval
+        <select id="cardLoadType" onchange="renderCardLoadFields()">
+          <option value="">— Sélectionner —</option>
+          <option value="R">R — Résistive</option>
+          <option value="C">C — Capacitive</option>
+          <option value="RCs">RC série</option>
+          <option value="RCp">RC parallèle</option>
+          <option value="Z">Z — Impédance connue</option>
+        </select>
+      </label>
+      <div id="cardLoadFields" style="margin-top:10px"></div>
+    </div>
+
+    <div style="margin-top:16px;display:flex;gap:10px;justify-content:flex-end">
+      <button onclick="closeCardFilter()">Annuler</button>
+      <button class="primary" onclick="applyCardFilter()">Appliquer au calcul</button>
+    </div>
+  </div>
+</div>
+
+
+<script>
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./service-worker.js").catch(err => console.warn("Service Worker:", err));
+  });
+}
+</script>
+
+
+<!-- Logo officiel EMC TS CONSULTING inclus dans le package PWA -->
+</body>
+<script>
+function openHarness(){
+  document.getElementById('m_len').value=document.getElementById('len').value;
+  document.getElementById('m_bundleD').value=document.getElementById('bundleD').value;
+  document.getElementById('m_ncond').value=document.getElementById('ncond').value;
+  document.getElementById('m_shield').value=document.getElementById('shield').value;
+  document.getElementById('m_cpmode').value=document.getElementById('cpmode').value;
+  document.getElementById('m_cp').value=document.getElementById('cp').value;
+  document.getElementById('m_lp').value=document.getElementById('lp').value;
+  document.getElementById('m_zt').value=document.getElementById('zt').value;
+  modalBuildConductors(true);
+  modalCp(); modalShield(); modalCalcModel();
+  document.getElementById('harnessModal').style.display='block';
+}
+function closeHarness(){document.getElementById('harnessModal').style.display='none'}
+function modalCp(){document.getElementById('m_cpfixed').style.display=document.getElementById('m_cpmode').value==='fixed'?'block':'none'}
+function modalShield(){document.getElementById('m_shieldBox').style.display=document.getElementById('m_shield').value==='Blindé'?'block':'none'}
+function modalCalcModel(){ const b=document.getElementById('m_lumpedBox'); if(b) b.style.display=document.getElementById('m_calcmodel').value==='lumped'?'block':'none'; }
+function modalBuildConductors(copyExisting=false){
+  const n=+document.getElementById('m_ncond').value||1;
+  const body=document.getElementById('m_conds');
+  if(body.children.length) harnessWireState=captureModalWireState();
+  body.innerHTML='';
+
+  function terminationHTML(prefix,label){
+    return `<div class="endSide" style="margin:8px 0;padding:8px;border:1px solid #d8dee5;border-radius:8px">
+      <b>${label}</b>
+      <div class="${prefix}dynamic" style="margin-top:7px"></div>
+    </div>`;
+  }
+
+  for(let i=0;i<n;i++){
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td colspan="6" style="padding:10px 6px;border-bottom:1px solid #d8dee5">
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:5px">
+        <b>Fil ${i+1}</b>
+        <label style="margin:0">Fonction</label>
+        <select class="mcfunc" onchange="modalFunctionV56(this)">
+          <option value="signal">Signal</option>
+          <option value="power">Alimentation</option>
+          <option value="gnd">GND / 0 V</option>
+          <option value="shield">Blindage</option>
+        </select>
+      </div>
+      ${terminationHTML('cl','Côté charge')}
+      ${terminationHTML('eq','Côté équipement')}
+    </td>`;
+    body.appendChild(tr);
+    modalFunctionV56(tr.querySelector('.mcfunc'));
+    if(harnessWireState[i]) restoreModalWireRow(tr,harnessWireState[i]);
+  }
+}
+
+function capacitanceToF(value,unit){ return (+value||0)*(unit==='pF'?1e-12:1e-9); }
+function captureEnd(row,prefix,func){
+  const q=c=>row.querySelector('.'+prefix+c);
+  if(func==='signal'||func==='power') return {kind:'signal',type:q('type')?.value||'open',r:+(q('r')?.value||0),c:+(q('c')?.value||0),cunit:q('cunit')?.value||'nF'};
+  if(func==='gnd') return {kind:'gnd',ref:q('gndref')?.value||'floating',type:q('chassistype')?.value||'open',z:+(q('z')?.value||0),c:+(q('c')?.value||0),cunit:q('cunit')?.value||'nF'};
+  return {kind:'shield',type:q('shieldtype')?.value||'zero',z:+(q('z')?.value||0)};
+}
+function captureModalWireState(){
+  return [...document.querySelectorAll('#m_conds tr')].map(row=>{const func=row.querySelector('.mcfunc')?.value||'signal';return {func,cl:captureEnd(row,'cl',func),eq:captureEnd(row,'eq',func)}});
+}
+function setVal(row,sel,val){const e=row.querySelector(sel);if(e&&val!==undefined)e.value=val;}
+function restoreModalWireRow(row,state){
+  const fs=row.querySelector('.mcfunc'); fs.value=state.func||'signal'; modalFunctionV56(fs);
+  for(const prefix of ['cl','eq']){const d=state[prefix]; if(!d) continue;
+    if(d.kind==='signal'){setVal(row,'.'+prefix+'type',d.type);setVal(row,'.'+prefix+'r',d.r);setVal(row,'.'+prefix+'c',d.c);setVal(row,'.'+prefix+'cunit',d.cunit);modalSimpleTypeChanged(row.querySelector('.'+prefix+'type'),prefix);}
+    else if(d.kind==='gnd'){setVal(row,'.'+prefix+'gndref',d.ref);setVal(row,'.'+prefix+'chassistype',d.type);setVal(row,'.'+prefix+'z',d.z);setVal(row,'.'+prefix+'c',d.c);setVal(row,'.'+prefix+'cunit',d.cunit);modalGndRefChanged(row.querySelector('.'+prefix+'gndref'),prefix);}
+    else {setVal(row,'.'+prefix+'shieldtype',d.type);setVal(row,'.'+prefix+'z',d.z);modalShieldEndChanged(row.querySelector('.'+prefix+'shieldtype'),prefix);}
+  }
+}
+function endpointZ(end,f){
+  if(!end) return null; const w=2*Math.PI*f;
+  if(end.kind==='signal'){const R=+end.r||0,C=capacitanceToF(end.c,end.cunit),t=end.type;if(t==='open')return null;if(t==='R')return {r:R,i:0};if(t==='C')return C>0?{r:0,i:-1/(w*C)}:null;if(t==='RCs')return C>0?{r:R,i:-1/(w*C)}:{r:R,i:0};if(t==='RCp'){const yr=R>0?1/R:0,yi=w*C,dd=yr*yr+yi*yi;return dd?{r:yr/dd,i:-yi/dd}:null;}}
+  if(end.kind==='gnd'){if(end.ref==='floating'||end.type==='open')return null;if(end.ref==='gnd'||end.type==='direct')return {r:0,i:0};if(end.type==='Z')return {r:+end.z||0,i:0};if(end.type==='C'){const C=capacitanceToF(end.c,end.cunit);return C>0?{r:0,i:-1/(w*C)}:null;}}
+  if(end.kind==='shield') return end.type==='zero'?{r:0,i:0}:{r:+end.z||0,i:0}; return null;
+}
+function impedanceMag(z){return z?Math.hypot(z.r,z.i):Infinity;}
+
+function impedanceFields(prefix){
+  return `<div class="signalZBox" style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end">
+    <div style="min-width:150px">
+      <label style="margin:0 0 3px;display:block">Type Z</label>
+      <select class="${prefix}type" onchange="modalSimpleTypeChanged(this,'${prefix}')">
+        <option value="R">R</option>
+        <option value="C">C</option>
+        <option value="RCs">RC série</option>
+        <option value="RCp">RC parallèle</option>
+        <option value="open">Ouvert</option>
+      </select>
+    </div>
+    <div class="${prefix}rbox" style="min-width:125px">
+      <label style="margin:0 0 3px;display:block">R [Ω]</label>
+      <input class="${prefix}r" type="number" step="any" value="50" style="width:120px">
+    </div>
+    <div class="${prefix}cbox" style="min-width:210px;display:none">
+      <label style="margin:0 0 3px;display:block">C</label>
+      <div style="display:flex;gap:6px;align-items:center">
+        <input class="${prefix}c" type="number" step="any" min="0" value="0" style="width:120px">
+        <select class="${prefix}cunit" style="width:70px" aria-label="Unité de capacité">
+          <option value="nF" selected>nF</option>
+          <option value="pF">pF</option>
+        </select>
+      </div>
+    </div>
+  </div>`;
+}
+function gndFields(prefix){
+  return `<div class="gndZBox" style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end">
+    <div style="min-width:250px">
+      <label style="margin:0 0 3px;display:block">Retour / référence</label>
+      <select class="${prefix}gndref" onchange="modalGndRefChanged(this,'${prefix}')">
+        <option value="chassis">Châssis — liaison définie</option>
+        <option value="floating">Flottant / aucune liaison châssis</option>
+        <option value="gnd">GND direct (0 Ω)</option>
+      </select>
+    </div>
+    <div class="${prefix}chassisTypeBox" style="min-width:230px">
+      <label style="margin:0 0 3px;display:block">Type de liaison châssis</label>
+      <select class="${prefix}chassistype" onchange="modalGndChassisTypeChanged(this,'${prefix}')">
+        <option value="direct">Directe — 0 Ω</option>
+        <option value="Z">Z — Impédance</option>
+        <option value="C">C — Capacité d’équipotentialité</option>
+        <option value="open">Ouverte / flottante</option>
+      </select>
+    </div>
+    <div class="${prefix}zbox" style="min-width:135px;display:none">
+      <label style="margin:0 0 3px;display:block">Z [Ω]</label>
+      <input class="${prefix}z" type="number" step="any" min="0" value="0" style="width:125px">
+    </div>
+    <div class="${prefix}gndcbox" style="min-width:210px;display:none">
+      <label style="margin:0 0 3px;display:block">C</label>
+      <div style="display:flex;gap:6px;align-items:center">
+        <input class="${prefix}c" type="number" step="any" min="0" value="0" style="width:120px">
+        <select class="${prefix}cunit" style="width:70px" aria-label="Unité de capacité châssis">
+          <option value="nF" selected>nF</option>
+          <option value="pF">pF</option>
+        </select>
+      </div>
+    </div>
+  </div>`;
+}
+
+function modalGndChassisTypeChanged(sel,prefix){
+  const d=sel.closest('.gndZBox');
+  const zb=d.querySelector('.'+prefix+'zbox'), cb=d.querySelector('.'+prefix+'gndcbox');
+  const z=d.querySelector('.'+prefix+'z'), c=d.querySelector('.'+prefix+'c');
+  zb.style.display='none'; cb.style.display='none';
+  if(sel.value==='Z') zb.style.display='block';
+  else if(sel.value==='C') cb.style.display='block';
+  else if(sel.value==='direct'){z.value='0';c.value='0';}
+}
+
+function shieldFields(prefix){
+  return `<div class="shieldZBox" style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end">
+    <div style="min-width:190px"><label style="margin:0 0 3px;display:block">Type de reprise blindage</label><select class="${prefix}shieldtype" onchange="modalShieldEndChanged(this,'${prefix}')"><option value="zero">0 Ω — reprise 360°</option><option value="z">Z — reprise filaire</option></select></div>
+    <div class="${prefix}shieldzbox" style="min-width:135px;display:none"><label style="margin:0 0 3px;display:block">Z [Ω]</label><input class="${prefix}z" type="number" step="any" min="0" value="0" style="width:125px"></div>
+  </div>`;
+}
+function modalFunctionV56(sel){
+  const row=sel.closest('tr'), f=sel.value;
+  for(const prefix of ['cl','eq']){
+    const d=row.querySelector('.'+prefix+'dynamic');
+    if(f==='signal' || f==='power'){
+      d.innerHTML=impedanceFields(prefix);
+      modalSimpleTypeChanged(d.querySelector('.'+prefix+'type'),prefix);
+    } else if(f==='gnd'){
+      d.innerHTML=gndFields(prefix);
+      modalGndRefChanged(d.querySelector('.'+prefix+'gndref'),prefix);
+    } else {
+      d.innerHTML=shieldFields(prefix);
+      modalShieldEndChanged(d.querySelector('.'+prefix+'shieldtype'),prefix);
+    }
+  }
+}
+function modalSimpleTypeChanged(sel,prefix){
+  const d=sel.closest('.signalZBox');
+  const rb=d.querySelector('.'+prefix+'rbox'), cb=d.querySelector('.'+prefix+'cbox');
+  rb.style.display='none'; cb.style.display='none';
+  if(sel.value==='R') rb.style.display='block';
+  else if(sel.value==='C') cb.style.display='block';
+  else if(sel.value==='RCs'||sel.value==='RCp'){rb.style.display='block';cb.style.display='block';}
+}
+function modalGndRefChanged(sel,prefix){
+  const d=sel.closest('.gndZBox');
+  const tb=d.querySelector('.'+prefix+'chassisTypeBox');
+  const typ=d.querySelector('.'+prefix+'chassistype');
+  const zb=d.querySelector('.'+prefix+'zbox'), cb=d.querySelector('.'+prefix+'gndcbox');
+  const z=d.querySelector('.'+prefix+'z'), c=d.querySelector('.'+prefix+'c');
+  if(sel.value==='chassis'){
+    tb.style.display='block'; typ.disabled=false; modalGndChassisTypeChanged(typ,prefix);
+  } else {
+    tb.style.display='none'; zb.style.display='none'; cb.style.display='none';
+    if(sel.value==='gnd'){typ.value='direct';z.value='0';c.value='0';}
+    if(sel.value==='floating') typ.value='open';
+  }
+}
+
+function modalShieldEndChanged(sel,prefix){
+  const d=sel.closest('.shieldZBox'), z=d.querySelector('.'+prefix+'z'), zb=d.querySelector('.'+prefix+'shieldzbox');
+  zb.style.display=sel.value==='z'?'block':'none';
+  if(sel.value==='zero') z.value='0';
+}
+
+function modalEndTypeChanged(sel,prefix){
+  const box=sel.closest('.endSide');
+  const r=box.querySelector('.'+prefix+'r'), c=box.querySelector('.'+prefix+'c');
+  r.style.display='none'; c.style.display='none';
+  r.disabled=false; c.disabled=false;
+  if(sel.value==='R') r.style.display='inline-block';
+  else if(sel.value==='C') c.style.display='inline-block';
+  else if(sel.value==='RCs' || sel.value==='RCp'){
+    r.style.display='inline-block'; c.style.display='inline-block';
+  }
+}
+
+function modalEndRefChanged(sel,prefix){
+  const box=sel.closest('.endSide');
+  const chassisBox=box.querySelector('.'+prefix+'chassisBox');
+  const typ=box.querySelector('.'+prefix+'type');
+  const r=box.querySelector('.'+prefix+'r');
+  const c=box.querySelector('.'+prefix+'c');
+
+  if(sel.value==='chassis'){
+    chassisBox.style.display='grid';
+    typ.disabled=false; r.disabled=false; c.disabled=false;
+    modalEndTypeChanged(typ,prefix);
+  } else {
+    chassisBox.style.display='none';
+    if(sel.value==='gnd_direct'){
+      typ.value='R'; r.value='0'; c.value='0';
+    }
+  }
+}
+
+
+function modalTerminationChanged(sel){
+  const row=sel.closest('tr');
+  const r=row.querySelector('.mcr'), c=row.querySelector('.mcc');
+  const type=sel.value;
+  // By default both fields are hidden; show only what the selected model needs.
+  r.style.display='none'; c.style.display='none';
+  r.disabled=false; c.disabled=false;
+  if(type==='R'){ r.style.display='inline-block'; }
+  else if(type==='C'){ c.style.display='inline-block'; }
+  else if(type==='RCs' || type==='RCp'){ r.style.display='inline-block'; c.style.display='inline-block'; }
+  // "Ouvert": no component value to enter.
+}
+
+function modalFunctionChanged(sel){
+  const row=sel.closest('tr'), ref=row.querySelector('.mcref');
+  if(sel.value==='gnd'){
+    ref.value='zero';
+  }else if(sel.value==='shield'){
+    ref.value='gnd_direct';
+  }
+  modalReturnChanged(ref,true);
+}
+function modalReturnChanged(sel,force=true){
+  const row=sel.closest('tr'), r=row.querySelector('.mcr'), c=row.querySelector('.mcc'), typ=row.querySelector('.mctype');
+  if(sel.value==='gnd_direct'){
+    typ.value='R'; r.value='0'; c.value='0';
+    modalTerminationChanged(typ);
+    r.disabled=true; c.disabled=true; typ.disabled=true;
+  }else{
+    typ.disabled=false;
+    modalTerminationChanged(typ);
+  }
+}
+
+function syncHarnessFromModal(){ modalCp(); modalShield(); }
+function applyHarness(){
+  harnessWireState=captureModalWireState();
+  document.getElementById('len').value=document.getElementById('m_len').value;
+  document.getElementById('bundleD').value=document.getElementById('m_bundleD').value;
+  document.getElementById('ncond').value=document.getElementById('m_ncond').value;
+  document.getElementById('shield').value=document.getElementById('m_shield').value;
+  document.getElementById('cpmode').value=document.getElementById('m_cpmode').value;
+  document.getElementById('cp').value=document.getElementById('m_cp').value;
+  document.getElementById('lp').value=document.getElementById('m_lp').value;
+  document.getElementById('zt').value=document.getElementById('m_zt').value;
+  calc();
+  closeHarness();
+}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeHarness()});
+</script>
+
+<script>
+let connectorState={mode:'transparent',wires:[]};
+function wireFunctionLabel(f){return ({signal:'Signal',power:'Alimentation',gnd:'GND / 0 V',shield:'Blindage'})[f]||'Signal';}
+function openConnector(){
+  if(!harnessWireState.length){ harnessWireState=captureModalWireState(); }
+  const n=Math.max(1,+document.getElementById('ncond').value||1);
+  document.getElementById('connectorMode').value=connectorState.mode||'transparent';
+  buildConnectorRows(n); connectorModeChanged(); document.getElementById('connectorModal').style.display='block';
+}
+function closeConnector(){document.getElementById('connectorModal').style.display='none';}
+function connectorModeChanged(){const f=document.getElementById('connectorMode').value==='filtered';document.getElementById('connectorTransparent').style.display=f?'none':'block';document.getElementById('connectorFiltered').style.display=f?'block':'none';}
+function connectorFilterFields(i,state){
+ const t=state?.type||'none',r=state?.r??50,c=state?.c??0,u=state?.cunit||'nF',ref=state?.ref||'chassis';
+ return `<div class="connectorWire" data-i="${i}" style="border:1px solid #d8dee5;border-radius:8px;padding:9px;margin:7px 0"><div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end"><div style="min-width:145px"><b>Fil ${i+1}</b><div class="small">${wireFunctionLabel(harnessWireState[i]?.func)}</div></div><div style="min-width:165px"><label style="margin:0 0 3px;display:block">Filtrage</label><select class="cfType" onchange="connectorFilterChanged(this)"><option value="none" ${t==='none'?'selected':''}>Aucun</option><option value="R" ${t==='R'?'selected':''}>R</option><option value="C" ${t==='C'?'selected':''}>C</option><option value="RCs" ${t==='RCs'?'selected':''}>RC série</option><option value="RCp" ${t==='RCp'?'selected':''}>RC parallèle</option></select></div><div class="cfRBox" style="min-width:125px"><label style="margin:0 0 3px;display:block">R [Ω]</label><input class="cfR" type="number" min="0" step="any" value="${r}" style="width:120px"></div><div class="cfCBox" style="min-width:205px"><label style="margin:0 0 3px;display:block">C</label><div style="display:flex;gap:6px"><input class="cfC" type="number" min="0" step="any" value="${c}" style="width:115px"><select class="cfCUnit" style="width:70px"><option value="nF" ${u==='nF'?'selected':''}>nF</option><option value="pF" ${u==='pF'?'selected':''}>pF</option></select></div></div><div class="cfRefBox" style="min-width:170px"><label style="margin:0 0 3px;display:block">Référence branche C</label><select class="cfRef"><option value="chassis" ${ref==='chassis'?'selected':''}>Châssis</option><option value="gnd" ${ref==='gnd'?'selected':''}>GND / 0 V</option></select></div></div></div>`;
+}
+function buildConnectorRows(n){const box=document.getElementById('connectorRows');box.innerHTML='';for(let i=0;i<n;i++){box.insertAdjacentHTML('beforeend',connectorFilterFields(i,connectorState.wires[i]));connectorFilterChanged(box.lastElementChild.querySelector('.cfType'));}}
+function connectorFilterChanged(sel){const row=sel.closest('.connectorWire'),rb=row.querySelector('.cfRBox'),cb=row.querySelector('.cfCBox'),ref=row.querySelector('.cfRefBox'),t=sel.value;rb.style.display=(t==='R'||t==='RCs'||t==='RCp')?'block':'none';cb.style.display=(t==='C'||t==='RCs'||t==='RCp')?'block':'none';ref.style.display=(t==='C'||t==='RCs'||t==='RCp')?'block':'none';}
+function captureConnector(){return [...document.querySelectorAll('.connectorWire')].map(row=>({type:row.querySelector('.cfType').value,r:+row.querySelector('.cfR').value||0,c:+row.querySelector('.cfC').value||0,cunit:row.querySelector('.cfCUnit').value,ref:row.querySelector('.cfRef').value}));}
+function applyConnector(){connectorState={mode:document.getElementById('connectorMode').value,wires:captureConnector()};document.getElementById('connectorNode').classList.toggle('sel',connectorState.mode==='filtered');closeConnector();calc();}
+
+let internalWiring = {
+  type: "",
+  length_m: "",
+  shieldMode: "",
+  zt_ohm_m: "",
+  attenuation_db: ""
+};
+
+function openInternal(){
+  const m=document.getElementById("internalModal");
+  const sel=document.getElementById("internalType");
+  if(sel) sel.value=internalWiring.type || "";
+  renderInternalFields(true);
+  if(m) m.style.display="flex";
+}
+function closeInternal(){
+  const m=document.getElementById("internalModal");
+  if(m) m.style.display="none";
+}
+function internalIsShielded(type){
+  return ["Fil blindé","Nappe blindée","Câble coaxial blindé"].includes(type);
+}
+function renderInternalFields(loadStored=false){
+  const sel=document.getElementById("internalType");
+  const box=document.getElementById("internalFields");
+  if(!sel || !box) return;
+  const type=sel.value;
+  if(!loadStored && type!==internalWiring.type){
+    internalWiring={type:type,length_m:"",shieldMode:"",zt_ohm_m:"",attenuation_db:""};
+  } else {
+    internalWiring.type=type;
+  }
+  if(!type){ box.innerHTML=""; return; }
+
+  const lengthLabel=(type==="Nappe non blindée" || type==="Nappe blindée") ? "Longueur des fils" : "Longueur";
+  let h=`<label>${lengthLabel} <span class="unit">[m]</span>
+      <input id="internalLength" type="number" min="0" step="0.01" placeholder="Valeur en m" value="${internalWiring.length_m ?? ""}">
+    </label>`;
+
+  if(internalIsShielded(type)){
+    const ds=(type==="Câble coaxial blindé")
+      ? `<div class="hint" style="margin:8px 0">Caractérisation du blindage — <b>d’après la datasheet du câble</b></div>`
+      : `<div class="hint" style="margin:8px 0">Caractérisation du blindage</div>`;
+    h+=ds+`<label>Méthode de caractérisation
+      <select id="internalShieldMode" onchange="renderInternalShieldField()">
+        <option value="">— Sélectionner —</option>
+        <option value="zt" ${internalWiring.shieldMode==="zt"?"selected":""}>Zt — Impédance de transfert</option>
+        <option value="att" ${internalWiring.shieldMode==="att"?"selected":""}>Atténuation de blindage</option>
+      </select>
+    </label>
+    <div id="internalShieldField" style="margin-top:10px"></div>`;
+  }
+  box.innerHTML=h;
+  if(internalIsShielded(type)) renderInternalShieldField(true);
+}
+function renderInternalShieldField(loadStored=false){
+  const modeSel=document.getElementById("internalShieldMode");
+  const box=document.getElementById("internalShieldField");
+  if(!modeSel || !box) return;
+  const mode=modeSel.value;
+  internalWiring.shieldMode=mode;
+  if(mode==="zt"){
+    box.innerHTML=`<label>Zt — Impédance de transfert <span class="unit">[Ω/m]</span>
+      <input id="internalZt" type="number" min="0" step="any" placeholder="Valeur en Ω/m" value="${internalWiring.zt_ohm_m ?? ""}">
+    </label>`;
+  } else if(mode==="att"){
+    box.innerHTML=`<label>Atténuation de blindage <span class="unit">[dB]</span>
+      <input id="internalAtt" type="number" min="0" step="any" placeholder="Valeur en dB" value="${internalWiring.attenuation_db ?? ""}">
+    </label>`;
+  } else box.innerHTML="";
+}
+function applyInternal(){
+  const sel=document.getElementById("internalType");
+  if(sel) internalWiring.type=sel.value;
+  const len=document.getElementById("internalLength");
+  if(len) internalWiring.length_m=len.value;
+  const sm=document.getElementById("internalShieldMode");
+  if(sm) internalWiring.shieldMode=sm.value;
+  const zt=document.getElementById("internalZt");
+  if(zt) internalWiring.zt_ohm_m=zt.value;
+  const att=document.getElementById("internalAtt");
+  if(att) internalWiring.attenuation_db=att.value;
+
+  const sum=document.getElementById("internalSummary");
+  if(sum){
+    let t=internalWiring.type || "Non défini";
+    if(internalWiring.length_m) t+=` · ${internalWiring.length_m} m`;
+    if(internalWiring.shieldMode==="zt" && internalWiring.zt_ohm_m) t+=` · Zt ${internalWiring.zt_ohm_m} Ω/m`;
+    if(internalWiring.shieldMode==="att" && internalWiring.attenuation_db) t+=` · ${internalWiring.attenuation_db} dB`;
+    sum.textContent=t;
+  }
+  closeInternal();
+  if(typeof calc==="function") calc();
+}
+
+
+let cardFilter = {
+  type:"",
+  R:"",
+  L:"",
+  Lunit:"uH",
+  C:"",
+  Cunit:"nF",
+  Cref:"GND/0 V",
+  loadType:"",
+  loadR:"",
+  loadC:"",
+  loadCunit:"nF",
+  loadZ:""
+};
+
+function openCardConnector(){
+  const m=document.getElementById("cardConnectorModal");
+  if(m) m.style.display="flex";
+}
+function closeCardConnector(){
+  const m=document.getElementById("cardConnectorModal");
+  if(m) m.style.display="none";
+}
+function openCardFilter(){
+  const m=document.getElementById("cardFilterModal");
+  if(!m) return;
+  document.getElementById("cardFilterType").value=cardFilter.type||"";
+  document.getElementById("cardLoadType").value=cardFilter.loadType||"";
+  renderCardFilterFields(true);
+  renderCardLoadFields(true);
+  m.style.display="flex";
+}
+function closeCardFilter(){
+  const m=document.getElementById("cardFilterModal");
+  if(m) m.style.display="none";
+}
+function filterCControls(){
+  return `<label>C <input id="cardFilterC" type="number" min="0" step="any" placeholder="Valeur C" value="${cardFilter.C||""}">
+    <select id="cardFilterCunit"><option value="pF" ${cardFilter.Cunit==="pF"?"selected":""}>pF</option><option value="nF" ${cardFilter.Cunit==="nF"?"selected":""}>nF</option><option value="uF" ${cardFilter.Cunit==="uF"?"selected":""}>µF</option></select></label>
+    <label>Référence du condensateur
+      <select id="cardFilterCref"><option ${cardFilter.Cref==="GND/0 V"?"selected":""}>GND/0 V</option><option ${cardFilter.Cref==="Châssis"?"selected":""}>Châssis</option></select>
+    </label>`;
+}
+function filterLControls(){
+  return `<label>L <input id="cardFilterL" type="number" min="0" step="any" placeholder="Valeur L" value="${cardFilter.L||""}">
+    <select id="cardFilterLunit"><option value="nH" ${cardFilter.Lunit==="nH"?"selected":""}>nH</option><option value="uH" ${cardFilter.Lunit==="uH"?"selected":""}>µH</option></select></label>`;
+}
+function renderCardFilterFields(loadStored=false){
+  const t=document.getElementById("cardFilterType")?.value||"";
+  if(!loadStored && t!==cardFilter.type){ cardFilter.type=t; cardFilter.R=""; cardFilter.L=""; cardFilter.C=""; }
+  else cardFilter.type=t;
+  const b=document.getElementById("cardFilterFields"); if(!b)return;
+  let h="";
+  if(t==="R") h=`<label>R <span class="unit">[Ω]</span><input id="cardFilterR" type="number" min="0" step="any" placeholder="Valeur en Ω" value="${cardFilter.R||""}"></label>`;
+  if(t==="C") h=filterCControls();
+  if(t==="RC") h=`<div class="hint">R série puis C en dérivation vers la référence choisie.</div><label>R <span class="unit">[Ω]</span><input id="cardFilterR" type="number" min="0" step="any" placeholder="Valeur en Ω" value="${cardFilter.R||""}"></label>`+filterCControls();
+  if(t==="LC") h=`<div class="hint">Sens du signal : L série → C shunt → carte.</div>`+filterLControls()+filterCControls();
+  if(t==="CL") h=`<div class="hint">Sens du signal : C shunt → L série → carte.</div>`+filterCControls()+filterLControls();
+  if(t==="none") h=`<div class="hint"><b>Aucun filtre — 0 dB.</b></div>`;
+  b.innerHTML=h;
+}
+function renderCardLoadFields(loadStored=false){
+  const t=document.getElementById("cardLoadType")?.value||"";
+  if(!loadStored && t!==cardFilter.loadType){ cardFilter.loadType=t; cardFilter.loadR=""; cardFilter.loadC=""; cardFilter.loadZ=""; }
+  else cardFilter.loadType=t;
+  const b=document.getElementById("cardLoadFields"); if(!b)return;
+  const c=`<label>C <input id="cardLoadC" type="number" min="0" step="any" placeholder="Valeur C" value="${cardFilter.loadC||""}">
+    <select id="cardLoadCunit"><option value="pF" ${cardFilter.loadCunit==="pF"?"selected":""}>pF</option><option value="nF" ${cardFilter.loadCunit==="nF"?"selected":""}>nF</option><option value="uF" ${cardFilter.loadCunit==="uF"?"selected":""}>µF</option></select></label>`;
+  const r=`<label>R <span class="unit">[Ω]</span><input id="cardLoadR" type="number" min="0" step="any" placeholder="Valeur en Ω" value="${cardFilter.loadR||""}"></label>`;
+  if(t==="R") b.innerHTML=r;
+  else if(t==="C") b.innerHTML=c;
+  else if(t==="RCs") b.innerHTML=`<div class="hint">Impédance aval RC série.</div>`+r+c;
+  else if(t==="RCp") b.innerHTML=`<div class="hint">Impédance aval RC parallèle.</div>`+r+c;
+  else if(t==="Z") b.innerHTML=`<label>Z <span class="unit">[Ω]</span><input id="cardLoadZ" type="number" min="0" step="any" placeholder="Valeur en Ω" value="${cardFilter.loadZ||""}"></label>`;
+  else b.innerHTML="";
+}
+function applyCardFilter(){
+  const gv=id=>document.getElementById(id)?.value||"";
+  cardFilter.type=gv("cardFilterType");
+  cardFilter.R=gv("cardFilterR"); cardFilter.L=gv("cardFilterL"); cardFilter.Lunit=gv("cardFilterLunit")||cardFilter.Lunit;
+  cardFilter.C=gv("cardFilterC"); cardFilter.Cunit=gv("cardFilterCunit")||cardFilter.Cunit; cardFilter.Cref=gv("cardFilterCref")||cardFilter.Cref;
+  cardFilter.loadType=gv("cardLoadType"); cardFilter.loadR=gv("cardLoadR"); cardFilter.loadC=gv("cardLoadC");
+  cardFilter.loadCunit=gv("cardLoadCunit")||cardFilter.loadCunit; cardFilter.loadZ=gv("cardLoadZ");
+  const labels={none:"Aucun — 0 dB",R:"R",C:"C",RC:"RC",LC:"LC",CL:"CL"};
+  const sum=document.getElementById("cardFilterSummary");
+  if(sum) sum.textContent=labels[cardFilter.type]||"Non défini";
+  closeCardFilter();
+  if(typeof calc==="function") calc();
+}
+
+</script>
+</html>

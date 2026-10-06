@@ -1,1 +1,24 @@
-{"name":"EMC TS CONSULTING – Déclinaison CEM","short_name":"EMC TS CEM","start_url":"./","display":"standalone","background_color":"#f3f6f8","theme_color":"#17384f","icons":[{"src":"icon-192.png","sizes":"192x192","type":"image/png"},{"src":"icon-512.png","sizes":"512x512","type":"image/png"}]}
+{
+  "name": "EMC TS CONSULTING — CS114",
+  "short_name": "EMC TS CS114",
+  "description": "Outil EMC TS CONSULTING de déclinaison et d'analyse CS114.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0b2f4f",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
