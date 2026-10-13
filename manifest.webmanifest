@@ -1,24 +1,18 @@
 {
-  "name": "EMC TS CONSULTING — CS114",
-  "short_name": "EMC TS CS114",
-  "description": "Outil EMC TS CONSULTING de déclinaison et d'analyse CS114.",
+  "id": "./index.html",
+  "name": "Déclinaison BCI EMCTS V1",
+  "short_name": "BCI EMCTS",
+  "description": "Déclinaison équipement → carte d'un essai de susceptibilité conduite RF (BCI), fil par fil. EMC TS CONSULTING.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#0b2f4f",
+  "background_color": "#f4f6f8",
+  "theme_color": "#17202a",
+  "lang": "fr",
   "icons": [
-    {
-      "src": "icons/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "icons/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
-    }
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }
