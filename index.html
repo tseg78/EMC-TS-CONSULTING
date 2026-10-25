@@ -175,7 +175,8 @@ svg text{font-family:Arial,Helvetica,sans-serif}
   <div class="inl">
    <div><label>Longueur (m)</label><input data-h="length" type="number" min="0" step="any"></div>
    <div><label>Nombre de conducteurs (60 au plus)</label><input id="hN" type="number" min="1" max="60" step="1"></div>
-   <div><label>Blindage global</label><select data-h="shield"><option value="none">Non blindé</option><option value="shielded">Blindé (non modélisé en V1)</option></select></div>
+   <div><label>Blindage global</label><select data-h="shield"><option value="none">Non blindé</option><option value="shielded">Blindé : atténuation forfaitaire</option></select></div>
+   <div id="hShieldBox"><label>Atténuation du blindage (dB)</label><input data-h="shieldAttenDb" type="number" min="0" step="any" placeholder="À renseigner"></div>
   </div>
   <div class="inl">
    <div><label>Diamètre de l'âme d'un conducteur (mm)</label><input data-h="wireD" type="number" min="0" step="any"></div>
@@ -186,6 +187,7 @@ svg text{font-family:Arial,Helvetica,sans-serif}
    <div id="hBundleAuto"><label>Diamètre calculé</label><div class="fixed" id="hBundleAutoVal">—</div></div>
   </div>
   <div class="small" style="margin-top:6px">Diamètre calculé : empilement compact des conducteurs isolés (diamètre minimal du cercle contenant N cercles égaux), sans gaine ni tresse. Le saisir s'il est mesuré sur le faisceau réel.</div>
+  <div class="warn" id="hShieldNote" hidden><b>Faisceau blindé, modèle forfaitaire.</b> Le calcul est fait comme pour un faisceau non blindé, puis toutes les grandeurs des fils intérieurs (courants et tensions jusqu'à la carte) sont réduites de l'atténuation saisie, identique à toutes les fréquences. C'est une approximation à utiliser quand on ne connaît rien du blindage : une valeur faible donne un résultat plus prudent. L'efficacité réelle d'un blindage varie avec la fréquence et dépend fortement de la reprise aux extrémités (360° ou queue de cochon).</div>
   <div class="small" style="margin-top:4px" id="hRInfo"></div>
   <div class="small approxOnly" style="margin-top:4px">Mode approché : la capacité et l'inductance du faisceau vers le plan d'essai (5 cm) sont calculées à partir de ce diamètre, puis réparties également entre les conducteurs. Les couplages entre conducteurs sont négligés, ce qui majore les tensions carte.</div>
   <div class="detOnly">
@@ -425,8 +427,8 @@ function harnessWireHTML(w, k) {
     body = `<div class="inl">
       <div><label>Terminaison vers le 0 V charge</label><select data-f="type">${[['R', 'R'], ['C', 'C'], ['RCs', 'RC série'], ['RCp', 'RC parallèle'], ['LC', 'LC série'], ['Z', '|Z| réelle'], ['open', 'Ouvert']].map(([v, t]) => opt(v, t, c.type)).join('')}</select></div>
       <div data-dep="type:R,RCs,RCp"><label>R (Ω)</label>${numIn('r', c.r)}</div>
-      <div data-dep="type:R"><label>L parasite série (nH)</label>${numIn('ls', c.ls, 'Non modélisée')}</div>
-      <div data-dep="type:R"><label>C parasite parallèle (pF)</label>${numIn('cp', c.cp, 'Non modélisée')}</div>
+      <div data-dep="type:R"><label>L parasite série (nH)</label>${numIn('ls', c.ls, 'Facultatif')}</div>
+      <div data-dep="type:R"><label>C parasite parallèle (pF)</label>${numIn('cp', c.cp, 'Facultatif')}</div>
       <div data-dep="type:LC"><label>L</label><div class="inl">${numIn('l', c.l)}${unitSel('lunit', c.lunit || 'nH', LU)}</div></div>
       <div data-dep="type:C,RCs,RCp,LC"><label>C</label><div class="inl">${numIn('c', c.c)}${unitSel('cunit', c.cunit || 'nF', CU)}</div></div>
       <div data-dep="type:Z"><label>|Z| (Ω)</label>${numIn('z', c.z)}</div></div>`;
@@ -459,6 +461,11 @@ function renderHarnessWires() {
 function captureHarnessWires() {
   $$('#hWires .wire').forEach(row => { const k = +row.dataset.k; hDraft.wires[k].cl = Object.assign({}, hDraft.wires[k].cl, readFields(row, 'f')); });
 }
+function syncShield() {
+  const sh = $('[data-h="shield"]').value === 'shielded';
+  $('#hShieldBox').hidden = !sh; $('#hShieldNote').hidden = !sh;
+}
+$('[data-h="shield"]').addEventListener('change', syncShield);
 function syncHarnessR() {
   const d = +$('[data-h="wireD"]').value, none = $('[data-h="rMode"]').value === 'none', rw = d / 2000;
   $('#hRInfo').textContent = none ? 'Résistance linéique négligée : les pics de résonance et la répartition basse fréquence entre fils de faible impédance sont moins réalistes.'
@@ -478,7 +485,7 @@ function openHarness() {
   hDraft = JSON.parse(JSON.stringify(state.harness));
   writeFields($('#harnessModal'), 'h', hDraft);
   $('#hN').value = hDraft.wires.length;
-  syncHarnessD(); syncHarnessR();
+  syncHarnessD(); syncHarnessR(); syncShield();
   renderHarnessWires();
   openModal('harnessModal');
 }
@@ -521,8 +528,8 @@ function loadFieldsHTML(d) {
   return `<div class="inl" style="margin-top:6px">
     <div><label>Charge carte (vers 0 V carte)</label><select data-f="loadType">${[['R', 'R'], ['C', 'C'], ['L', 'L'], ['RCs', 'RC série'], ['RCp', 'RC parallèle'], ['LC', 'LC série'], ['Z', '|Z| réelle']].map(([v, t]) => opt(v, t, d.loadType)).join('')}</select></div>
     <div data-dep="loadType:R,RCs,RCp,Z"><label>R / |Z| (Ω)</label>${numIn('loadR', d.loadR)}</div>
-    <div data-dep="loadType:R"><label>L parasite série (nH)</label>${numIn('loadLs', d.loadLs, 'Non modélisée')}</div>
-    <div data-dep="loadType:R"><label>C parasite parallèle (pF)</label>${numIn('loadCp', d.loadCp, 'Non modélisée')}</div>
+    <div data-dep="loadType:R"><label>L parasite série (nH)</label>${numIn('loadLs', d.loadLs, 'Facultatif')}</div>
+    <div data-dep="loadType:R"><label>C parasite parallèle (pF)</label>${numIn('loadCp', d.loadCp, 'Facultatif')}</div>
     <div data-dep="loadType:L,LC"><label>L</label><div class="inl">${numIn('loadL', d.loadL)}${unitSel('loadLUnit', d.loadLUnit || 'nH', LU)}</div></div>
     <div data-dep="loadType:C,RCs,RCp,LC"><label>C</label><div class="inl">${numIn('loadC', d.loadC)}${unitSel('loadCUnit', d.loadCUnit || 'pF', CU)}</div></div>
   </div>`;
@@ -762,7 +769,8 @@ const HYP_APPROX = [
 function renderHyp() {
   const approx = state.model === 'approx';
   $('#hypTitle').textContent = approx ? 'Hypothèses du calcul approché' : 'Hypothèses du modèle détaillé';
-  $('#hypList').innerHTML = (approx ? HYP_APPROX : HYP_DETAILED).map(([c, t, x]) => `<li><span class="tag ${c}">${t}</span> ${esc(x)}</li>`).join('');
+  const shieldHyp = state.harness.shield === 'shielded' ? [['m', 'MODÈLE', `Faisceau blindé, modèle forfaitaire : calcul comme sans blindage, puis courants et tensions des fils intérieurs réduits de ${nf(state.harness.shieldAttenDb, 1)} dB, identiquement à toutes les fréquences. La f.é.m. requise n'est pas calculée. Approximation à remplacer par un modèle d'impédance de transfert quand les données du câble seront connues.`]] : [];
+  $('#hypList').innerHTML = [...(approx ? HYP_APPROX : HYP_DETAILED), ...shieldHyp].map(([c, t, x]) => `<li><span class="tag ${c}">${t}</span> ${esc(x)}</li>`).join('');
 }
 let resCtx = null;
 function openResults() {
@@ -774,6 +782,7 @@ function openResults() {
   $('#resSub').textContent = approx
     ? `${N} conducteurs · ${band} · ${eng(state.injection.iBCI / 1000, 'A')} · calcul approché · pince à ${nf(state.injection.probePos, 3)} m du connecteur`
     : `${N} conducteurs · ${band} · ${eng(state.injection.iBCI / 1000, 'A')} · modèle détaillé · ${state.injection.mode === 'calibrated' ? 'pince calibrée' : 'courant imposé'} · pince à ${nf(state.injection.probePos, 3)} m du connecteur`;
+  if (state.harness.shield === 'shielded') $('#resSub').textContent += ` · faisceau blindé, atténuation forfaitaire ${nf(state.harness.shieldAttenDb, 1)} dB`;
   renderHyp();
   resCtx = null;
   $('#resMsg').innerHTML = ''; $('#resTable').innerHTML = ''; $('#chart').innerHTML = ''; $('#legend').innerHTML = ''; $('#resDetail').innerHTML = '';

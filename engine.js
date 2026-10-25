@@ -392,12 +392,15 @@
   const isShieldedInternal = t => ['Fil blindé', 'Nappe blindée', 'Câble coaxial blindé'].includes(t);
   const isRibbon = t => t === 'Nappe non blindée' || t === 'Nappe blindée';
 
+  // Faisceau blindé, modèle forfaitaire : une atténuation A (dB) ≥ 0 doit être saisie.
+  function shieldComplete(H) { return H.shield !== 'shielded' || nonneg(H.shieldAttenDb); }
+  function shieldFactor(H) { return H.shield === 'shielded' ? Math.pow(10, -num(H.shieldAttenDb) / 20) : 1; }
   function checkConfig(cfg) {
     const H = cfg.harness, I = cfg.internal, J = cfg.injection, N = H.wires.length;
     if (cfg.model === 'approx') {
       const blocksA = {
         injection: pos(J.iBCI) && nonneg(J.probePos) && num(J.probePos) <= num(H.length),
-        harness: pos(H.length) && N >= 1 && (H.bundleMode === 'manual' ? pos(H.bundleD) : pos(H.isoD)) && (H.rMode === 'none' || (pos(H.wireD) && !(num(H.wireD) > num(H.isoD)))) && H.shield !== 'shielded' && H.wires.every(termComplete),
+        harness: pos(H.length) && N >= 1 && (H.bundleMode === 'manual' ? pos(H.bundleD) : pos(H.isoD)) && (H.rMode === 'none' || (pos(H.wireD) && !(num(H.wireD) > num(H.isoD)))) && shieldComplete(H) && H.wires.every(termComplete),
         connector: cfg.connector.mode === 'transparent' || H.wires.every((w, k) => w.func === 'gnd' || w.func === 'shield' || filterComplete(cfg.connector.wires[k])),
         internal: I.present === false || (!!I.type && pos(I.length) && pos(I.height) && (isRibbon(I.type) ? pos(I.pitch) : (I.bundleMode !== 'manual' || pos(I.bundleD)))),
         cardConnector: true,
@@ -407,13 +410,13 @@
       const msgs = [];
       const hasReturn = H.wires.some(w => (w.func === 'gnd' && w.cl && w.cl.ref === 'chassis') || w.func === 'shield');
       if (!hasReturn) msgs.push('0 V de la charge non relié au châssis : à basse fréquence, le courant BCI ne revient que par la capacité du faisceau vers le plan. Imposer le courant y demande une f.é.m. irréaliste ; ces points sont signalés « inatteignable ».');
-      if (H.shield === 'shielded') msgs.push('Faisceau extérieur blindé : non modélisé en V1.');
+      if (H.shield === 'shielded') msgs.push(`Faisceau extérieur blindé : atténuation forfaitaire de ${num(H.shieldAttenDb)} dB appliquée aux fils intérieurs (approximation, voir les hypothèses).`);
       if (N > MAX_WIRES.approx) msgs.push(`Plus de ${MAX_WIRES.approx} conducteurs : le calcul approché est limité à ${MAX_WIRES.approx} conducteurs.`);
-      return { blocks: blocksA, ready: Object.values(blocksA).every(Boolean) && N <= MAX_WIRES.approx && H.shield !== 'shielded', messages: msgs };
+      return { blocks: blocksA, ready: Object.values(blocksA).every(Boolean) && N <= MAX_WIRES.approx, messages: msgs };
     }
     const blocks = {
       injection: pos(J.iBCI) && nonneg(J.probePos) && num(J.probePos) <= num(H.length) && (J.mode !== 'calibrated' || nonneg(J.zp)) && (J.limitDb === '' || J.limitDb === undefined || Number.isFinite(num(J.limitDb))),
-      harness: pos(H.length) && (H.bundleMode !== 'manual' || pos(H.bundleD)) && pos(H.wireD) && pos(H.isoD) && num(H.isoD) >= num(H.wireD) && pos(H.epsr) && num(H.epsr) >= 1 && N >= 1 && H.shield !== 'shielded' && H.wires.every(termComplete),
+      harness: pos(H.length) && (H.bundleMode !== 'manual' || pos(H.bundleD)) && pos(H.wireD) && pos(H.isoD) && num(H.isoD) >= num(H.wireD) && pos(H.epsr) && num(H.epsr) >= 1 && N >= 1 && shieldComplete(H) && H.wires.every(termComplete),
       connector: cfg.connector.mode === 'transparent' || H.wires.every((w, k) => w.func === 'gnd' || w.func === 'shield' || filterComplete(cfg.connector.wires[k])),
       internal: I.present === false || (!!I.type && pos(I.length) && pos(I.height) && (isRibbon(I.type) ? pos(I.pitch) : (I.bundleMode !== 'manual' || pos(I.bundleD)))),
       cardConnector: true,
@@ -421,12 +424,12 @@
         (cfg.cardGnd.type === 'direct' || cfg.cardGnd.type === 'open' || (cfg.cardGnd.type === 'Z' && pos(cfg.cardGnd.z)) || (cfg.cardGnd.type === 'C' && pos(cfg.cardGnd.c)))
     };
     const messages = [];
-    if (H.shield === 'shielded') messages.push('Faisceau extérieur blindé : non modélisé en V1 (le modèle MTL traite un faisceau non blindé).');
+    if (H.shield === 'shielded') messages.push(`Faisceau extérieur blindé : atténuation forfaitaire de ${num(H.shieldAttenDb)} dB appliquée aux fils intérieurs (approximation, voir les hypothèses).`);
     if (N > MAX_WIRES.detailed) messages.push(`Plus de ${MAX_WIRES.detailed} conducteurs : le modèle détaillé est limité à ${MAX_WIRES.detailed} conducteurs (temps de calcul). Utiliser le modèle approché, qui accepte jusqu'à ${MAX_WIRES.approx} conducteurs.`);
     else if (N > 25) messages.push(`${N} conducteurs en modèle détaillé : le calcul peut prendre quelques secondes.`);
     if (!H.wires.some(w => w.func === 'gnd')) messages.push('Aucun conducteur GND / 0 V : les tensions carte sont référencées au 0 V carte seul.');
     if (pos(H.length) && nonneg(J.probePos) && num(J.probePos) > num(H.length)) messages.push('La pince est positionnée au-delà de la longueur du harnais.');
-    return { blocks, ready: Object.values(blocks).every(Boolean) && N <= MAX_WIRES.detailed && H.shield !== 'shielded', messages };
+    return { blocks, ready: Object.values(blocks).every(Boolean) && N <= MAX_WIRES.detailed, messages };
   }
 
   /* ---------- Diamètres effectifs (mm) ---------- */
@@ -553,17 +556,20 @@
       if (!(iMag > 1e-15)) return null; // aucun chemin de retour pour le courant de mode commun
       factor = Ibci / iMag;
     }
-    const V = n => scl(sol.V(n), factor);
+    // Faisceau blindé (modèle forfaitaire) : le courant BCI circule sur le blindage ; tout ce qui atteint les fils
+    // intérieurs est réduit du facteur ks = 10^(−A/20), A étant l'atténuation saisie.
+    const shielded = cfg.harness.shield === 'shielded', ks = shieldFactor(cfg.harness);
+    const V = n => scl(sol.V(n), factor * ks);
     const vC0 = V(nodes.C0n);
     const wires = cfg.harness.wires.map((wv, k) => {
-      const r = { func: wv.func, iProbe: abs(sol.I(k)) * factor, iShare: abs(sol.I(k)) / iMag, vConnector: abs(V(nodes.ce[k])), vCardIn: abs(V(nodes.cd[k])) };
+      const r = { func: wv.func, iProbe: abs(sol.I(k)) * factor * ks, iShare: abs(sol.I(k)) / iMag * ks, vConnector: abs(V(nodes.ce[k])), vCardIn: abs(V(nodes.cd[k])) };
       r.vConnectorDiff = gndIdx >= 0 ? abs(sub(V(nodes.ce[k]), V(nodes.ce[gndIdx]))) : NaN;
       r.vCardInDiff = gndIdx >= 0 ? abs(sub(V(nodes.cd[k]), V(nodes.cd[gndIdx]))) : NaN;
       if (nodes.out[k] != null) r.vout = abs(sub(V(nodes.out[k]), vC0));
       return r;
     });
     const Ieff = iMag * factor;
-    return { f, Ibundle: Ieff, E: calibrated ? abs(E) * factor : factor, limited, vCardGnd: abs(vC0), wires, dim: sol.dim };
+    return { f, Ibundle: Ieff, E: shielded ? NaN : (calibrated ? abs(E) * factor : factor), limited, shielded, ks, vCardGnd: abs(vC0), wires, dim: sol.dim };
   }
 
   // Mode approché : fréquence au-delà de laquelle la longueur dépasse λ/10 (propagation non représentée).
@@ -704,9 +710,19 @@
       }
       out.push({ name: 'Charge résistive réelle : (R + jωLs) en parallèle avec Cp', ok: worst < 1e-12, detail: `écart relatif max = ${worst.toExponential(2)}` });
     }
+    // T11 : faisceau blindé, modèle forfaitaire — tensions carte réduites exactement de A dB
+    {
+      const mk = sh => ({ model: 'approx', injection: { iBCI: 100, band: 'do160', probePos: 0.05 },
+        harness: { length: 1, bundleMode: 'auto', isoD: 1.4, wireD: 0.8, shield: sh, shieldAttenDb: 26, wires: [{ func: 'signal', cl: { type: 'R', r: 100 } }, { func: 'gnd', cl: { ref: 'chassis', type: 'direct' } }] },
+        connector: { mode: 'transparent', wires: [] }, internal: { present: false }, cardGnd: { type: 'direct' },
+        filters: [{ type: 'none', loadType: 'R', loadR: 50 }, { type: 'none' }] });
+      const a = mk('none'), b = mk('shielded'), pa = prepare(a), pb = prepare(b); let worst = 0;
+      for (const f of [1e5, 3e7, 2e8]) { const va = point(a, pa, f).wires[0].vout, vb = point(b, pb, f).wires[0].vout; worst = Math.max(worst, Math.abs(20 * Math.log10(va / vb) - 26)); }
+      out.push({ name: 'Faisceau blindé (forfaitaire) : tension carte réduite de l\'atténuation saisie (26 dB)', ok: worst < 1e-9, detail: `écart max = ${worst.toExponential(2)} dB` });
+    }
     return out;
   }
 
-  const api = { realR, rPrime, rDC, skinDepth, jacobiEig, MAX_WIRES, C0, MU0, EPS0, cx, abs, ringPositions, bundlePositions, packingRatio, autoBundleD, harnessBundleD, internalBundleD, rowPositions, lineParams, inductanceMatrix, Circuit, prepare, buildCircuit, point, sweep, frequencies, bandLimits, approxLimit, checkConfig, selfTests, termComplete, filterComplete, loadComplete, isShieldedInternal, isRibbon, RJIG };
+  const api = { shieldFactor, realR, rPrime, rDC, skinDepth, jacobiEig, MAX_WIRES, C0, MU0, EPS0, cx, abs, ringPositions, bundlePositions, packingRatio, autoBundleD, harnessBundleD, internalBundleD, rowPositions, lineParams, inductanceMatrix, Circuit, prepare, buildCircuit, point, sweep, frequencies, bandLimits, approxLimit, checkConfig, selfTests, termComplete, filterComplete, loadComplete, isShieldedInternal, isRibbon, RJIG };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else global.BCIEngine = api;
 })(typeof window !== 'undefined' ? window : globalThis);

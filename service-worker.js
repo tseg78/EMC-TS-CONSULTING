@@ -1,5 +1,5 @@
 // EMC TS CONSULTING — Déclinaison BCI EMCTS V1 — cache hors ligne des ressources locales de l'application.
-const CACHE_NAME = 'emcts-bci-v1-20261025';
+const CACHE_NAME = 'emcts-bci-v1-20261025b';
 const ASSETS = [
   './', './index.html', './engine.js', './manifest.webmanifest',
   './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-192.png', './icons/icon-maskable-512.png'

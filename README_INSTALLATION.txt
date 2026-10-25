@@ -26,7 +26,7 @@ La configuration courante est conservée dans le navigateur. Les boutons « Expo
 
 STATUT DU MODÈLE
 Modèle EMC TS CONSULTING en cours de validation. Le bouton « Lancer les vérifications du moteur »
-(fenêtre Résultat) exécute dix contrôles analytiques. Les résultats doivent être confrontés à des mesures
+(fenêtre Résultat) exécute onze contrôles analytiques. Les résultats doivent être confrontés à des mesures
 avant toute utilisation comme exigence. Hypothèses détaillées dans la fenêtre Résultat.
 
 DEUX MODES DE CALCUL
@@ -46,6 +46,11 @@ identiques : les fils ajoutés reprennent la terminaison du dernier fil signal o
 « Copier vers tous les fils … » recopie une terminaison, un filtre ou une charge sur les fils de même fonction.
 Le câblage interne est optionnel : absent par défaut (connecteur relié directement à la carte), il n'entre dans
 le calcul que s'il est déclaré présent. Le résultat est disponible quand tous les blocs requis sont verts.
+
+FAISCEAU BLINDÉ (modèle forfaitaire)
+Blindage global « Blindé : atténuation forfaitaire » : le calcul est fait comme sans blindage, puis les courants et
+tensions des fils intérieurs sont réduits de l'atténuation saisie (dB), identique à toutes les fréquences.
+Approximation pour un blindage dont on ne connaît rien ; la f.é.m. requise n'est alors pas calculée.
 
 CHARGES RÉSISTIVES RÉELLES
 Pour une terminaison ou une charge carte de type R, deux champs facultatifs décrivent la résistance réelle :
@@ -67,5 +72,6 @@ CHANGEMENTS PRINCIPAUX PAR RAPPORT AU PROTOTYPE V8.11
 - Pince modélisée en source série au point d'injection saisi ; deux modes : courant imposé ou pince calibrée.
 - Tous les champs de saisie pilotent le calcul (courant, filtres connecteur et carte, liaison 0 V carte,
   parasites HF des composants). Champs sans effet retirés.
+- Faisceau blindé pris en compte par une atténuation forfaitaire.
 - Bandes DO-160 Section 20 (10 kHz–400 MHz) et MIL-STD-461 CS114 (10 kHz–200 MHz).
 - Export / import JSON, impression des résultats, icônes fournies.
