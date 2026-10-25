@@ -16,6 +16,8 @@
   'use strict';
 
   const C0 = 299792458;
+  // Nombre maximal de conducteurs : le mode détaillé (matrices pleines) devient lent au-delà de 40.
+  const MAX_WIRES = { approx: 60, detailed: 40 };
   const MU0 = 4e-7 * Math.PI;
   const EPS0 = 1 / (MU0 * C0 * C0);
 
@@ -30,6 +32,21 @@
   const inv = a => div(cx(1, 0), a);
   const csin = z => cx(Math.sin(z.r) * Math.cosh(z.i), Math.cos(z.r) * Math.sinh(z.i));
   const ccos = z => cx(Math.cos(z.r) * Math.cosh(z.i), -Math.sin(z.r) * Math.sinh(z.i));
+  const cexp = z => { const m = Math.exp(z.r); return cx(m * Math.cos(z.i), m * Math.sin(z.i)); };
+  // exp(z) − 1 sans perte de précision pour |z| petit
+  const cexpm1 = z => {
+    if (abs(z) > 1e-3) return sub(cexp(z), cx(1, 0));
+    let t = z, s = z; for (let k = 2; k <= 6; k++) { t = scl(mul(t, z), 1 / k); s = add(s, t); } return s;
+  };
+  // racine carrée complexe, partie réelle positive
+  const csqrt = z => { const m = abs(z); let r = Math.sqrt((m + z.r) / 2), i = Math.sqrt(Math.max(0, (m - z.r) / 2)); if (z.i < 0) i = -i; return cx(r, i); };
+
+  /* ---------- Résistance linéique d'un conducteur en cuivre (effet de peau) ---------- */
+  const SIGMA_CU = 5.8e7; // S/m, cuivre recuit
+  function rDC(rw) { return rw > 0 ? 1 / (SIGMA_CU * Math.PI * rw * rw) : 0; }
+  function skinDepth(f) { return 1 / Math.sqrt(Math.PI * f * MU0 * SIGMA_CU); }
+  // R′(f) = R′dc·√(1 + (r/2δ)²) : R′dc en basse fréquence, 1/(2π r δ σ) en haute fréquence.
+  function rPrime(f, rw) { if (!(rw > 0)) return 0; const x = rw / (2 * skinDepth(f)); return rDC(rw) * Math.sqrt(1 + x * x); }
 
   /* ---------- Unités ---------- */
   const unitL = u => (u === 'mH' ? 1e-3 : u === 'uH' ? 1e-6 : 1e-9);
@@ -51,6 +68,24 @@
       for (let i = 0; i < n; i++) if (i !== k) { const q = A[i][k]; if (q) for (let j = 0; j < 2 * n; j++) A[i][j] -= q * A[k][j]; }
     }
     return A.map(row => row.slice(n));
+  }
+
+  // Valeurs et vecteurs propres d'une matrice réelle symétrique (méthode de Jacobi). T : vecteurs propres en colonnes.
+  function jacobiEig(A0) {
+    const n = A0.length, A = A0.map(r => r.slice()), T = Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => (i === j ? 1 : 0)));
+    for (let sweep = 0; sweep < 100; sweep++) {
+      let off = 0; for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) off += A[i][j] * A[i][j];
+      if (off < 1e-30 * (1 + A.reduce((s, r, i) => s + r[i] * r[i], 0))) break;
+      for (let p = 0; p < n; p++) for (let q = p + 1; q < n; q++) {
+        if (Math.abs(A[p][q]) < 1e-300) continue;
+        const th = (A[q][q] - A[p][p]) / (2 * A[p][q]);
+        const t = Math.sign(th || 1) / (Math.abs(th) + Math.sqrt(th * th + 1)), c = 1 / Math.sqrt(t * t + 1), sn = t * c;
+        for (let k = 0; k < n; k++) { const akp = A[k][p], akq = A[k][q]; A[k][p] = c * akp - sn * akq; A[k][q] = sn * akp + c * akq; }
+        for (let k = 0; k < n; k++) { const apk = A[p][k], aqk = A[q][k]; A[p][k] = c * apk - sn * aqk; A[q][k] = sn * apk + c * aqk; }
+        for (let k = 0; k < n; k++) { const tkp = T[k][p], tkq = T[k][q]; T[k][p] = c * tkp - sn * tkq; T[k][q] = sn * tkp + c * tkq; }
+      }
+    }
+    return { vals: A.map((r, i) => r[i]), T };
   }
 
   /* ---------- Géométrie ---------- */
@@ -134,7 +169,7 @@
     const Yc = Linv.map(r => r.map(x => x / v));
     const sumC = C.flat().reduce((a, b) => a + b, 0);
     const sumYc = Yc.flat().reduce((a, b) => a + b, 0);
-    return { L, C, Yc, v, epsr, n: L.length, Ccm: sumC, Zcm: 1 / sumYc, errors, warnings: geo.warnings, pts: geo.pts, rw };
+    return { L, C, Yc, v, epsr, n: L.length, Ccm: sumC, Zcm: 1 / sumYc, eig: jacobiEig(C), errors, warnings: geo.warnings, pts: geo.pts, rw };
   }
 
   /* ---------- Circuit MNA ---------- */
@@ -153,7 +188,28 @@
       if (Z.r === 0 && Z.i === 0) { this.short(a, b); return; }
       this.elems.push({ t: 'y', a, b, Y: inv(Z) });
     }
-    line(p1, p2, length, P, w) {
+    // Ligne avec pertes : résistance linéique Rp identique sur chaque conducteur (plan de référence parfait).
+    // Z′ = Rp·I + jωL′, Y′ = jωC′, L′ = C′⁻¹/v² : tout est diagonal dans la base propre de C′ (C′ = T Λ Tᵀ).
+    // Mode m : z = Rp + jω/(v²λm), y = jωλm, γ = √(zy), Y0 = y/γ ; Y11 = T diag(Y0·coth γl) Tᵀ, Y12 = −T diag(Y0·csch γl) Tᵀ.
+    line(p1, p2, length, P, w, Rp = 0) {
+      if (Rp > 0) {
+        const { vals, T } = P.eig, n = vals.length, a = [], b = [];
+        for (let m = 0; m < n; m++) {
+          const z = cx(Rp, w / (P.v * P.v * vals[m])), y = cx(0, w * vals[m]);
+          const g = csqrt(mul(z, y)), Y0 = div(y, g), gl = scl(g, length);
+          const den = scl(cexpm1(scl(gl, -2)), -1); // 1 − e^(−2γl)
+          const coth = div(add(cx(1, 0), cexp(scl(gl, -2))), den), csch = div(scl(cexp(scl(gl, -1)), 2), den);
+          a.push(mul(Y0, coth)); b.push(scl(mul(Y0, csch), -1));
+        }
+        const A = [], B = [];
+        for (let i = 0; i < n; i++) { A.push([]); B.push([]); for (let j = 0; j < n; j++) {
+          let sa = cx(0, 0), sb = cx(0, 0);
+          for (let m = 0; m < n; m++) { const t = T[i][m] * T[j][m]; if (t) { sa = add(sa, scl(a[m], t)); sb = add(sb, scl(b[m], t)); } }
+          A[i].push(sa); B[i].push(sb);
+        } }
+        this.elems.push({ t: 'mtlc', p1, p2, A, B });
+        return;
+      }
       const theta = cx(w * length / P.v, 0);
       let s = csin(theta);
       if (abs(s) < 1e-12) s = csin(cx(theta.r, -1e-9)); // résonance exacte : régularisation infinitésimale
@@ -175,6 +231,11 @@
           const i = idx(e.a), j = idx(e.b), y = e.Y;
           if (i === j) continue;
           st(i, i, y); st(j, j, y); st(i, j, scl(y, -1)); st(j, i, scl(y, -1));
+        } else if (e.t === 'mtlc') {
+          const N = e.p1.length, i1 = e.p1.map(idx), i2 = e.p2.map(idx);
+          for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) {
+            st(i1[i], i1[j], e.A[i][j]); st(i2[i], i2[j], e.A[i][j]); st(i1[i], i2[j], e.B[i][j]); st(i2[i], i1[j], e.B[i][j]);
+          }
         } else {
           const N = e.p1.length;
           const i1 = e.p1.map(idx), i2 = e.p2.map(idx);
@@ -239,10 +300,17 @@
     return zs;
   }
   // Terminaison côté charge d'un signal / d'une alimentation.
+  // Résistance réelle : R avec inductance série Ls (nH) et capacité parallèle Cp (pF) facultatives (case vide = non modélisée).
+  function realR(R, lsNh, cpPf, w) {
+    let z = cx(R, w * (num(lsNh) || 0) * 1e-9);
+    const cp = (num(cpPf) || 0) * 1e-12;
+    if (cp > 0) z = inv(add(inv(z), cx(0, w * cp)));
+    return z;
+  }
   function termZ(e, w) {
     const R = num(e.r), C = num(e.c) * unitC(e.cunit), L = num(e.l) * unitL(e.lunit);
     switch (e.type) {
-      case 'R': return cx(R, 0);
+      case 'R': return realR(R, e.ls, e.cp, w);
       case 'Z': return cx(num(e.z), 0);
       case 'C': return capZ(w, C);
       case 'RCs': return cx(R, -1 / (w * C));
@@ -255,7 +323,8 @@
   function loadZ(d, w) {
     const R = num(d.loadR), L = num(d.loadL) * unitL(d.loadLUnit), C = num(d.loadC) * unitC(d.loadCUnit);
     switch (d.loadType) {
-      case 'R': case 'Z': return cx(R, 0);
+      case 'R': return realR(R, d.loadLs, d.loadCp, w);
+      case 'Z': return cx(R, 0);
       case 'C': return capZ(w, C);
       case 'L': return cx(0, w * L);
       case 'RCs': return cx(R, -1 / (w * C));
@@ -328,7 +397,7 @@
     if (cfg.model === 'approx') {
       const blocksA = {
         injection: pos(J.iBCI) && nonneg(J.probePos) && num(J.probePos) <= num(H.length),
-        harness: pos(H.length) && N >= 1 && (H.bundleMode === 'manual' ? pos(H.bundleD) : pos(H.isoD)) && H.shield !== 'shielded' && H.wires.every(termComplete),
+        harness: pos(H.length) && N >= 1 && (H.bundleMode === 'manual' ? pos(H.bundleD) : pos(H.isoD)) && (H.rMode === 'none' || (pos(H.wireD) && !(num(H.wireD) > num(H.isoD)))) && H.shield !== 'shielded' && H.wires.every(termComplete),
         connector: cfg.connector.mode === 'transparent' || H.wires.every((w, k) => w.func === 'gnd' || w.func === 'shield' || filterComplete(cfg.connector.wires[k])),
         internal: I.present === false || (!!I.type && pos(I.length) && pos(I.height) && (isRibbon(I.type) ? pos(I.pitch) : (I.bundleMode !== 'manual' || pos(I.bundleD)))),
         cardConnector: true,
@@ -339,8 +408,8 @@
       const hasReturn = H.wires.some(w => (w.func === 'gnd' && w.cl && w.cl.ref === 'chassis') || w.func === 'shield');
       if (!hasReturn) msgs.push('0 V de la charge non relié au châssis : à basse fréquence, le courant BCI ne revient que par la capacité du faisceau vers le plan. Imposer le courant y demande une f.é.m. irréaliste ; ces points sont signalés « inatteignable ».');
       if (H.shield === 'shielded') msgs.push('Faisceau extérieur blindé : non modélisé en V1.');
-      if (N > 16) msgs.push('Plus de 16 conducteurs : calcul limité à 16 conducteurs.');
-      return { blocks: blocksA, ready: Object.values(blocksA).every(Boolean) && N <= 16 && H.shield !== 'shielded', messages: msgs };
+      if (N > MAX_WIRES.approx) msgs.push(`Plus de ${MAX_WIRES.approx} conducteurs : le calcul approché est limité à ${MAX_WIRES.approx} conducteurs.`);
+      return { blocks: blocksA, ready: Object.values(blocksA).every(Boolean) && N <= MAX_WIRES.approx && H.shield !== 'shielded', messages: msgs };
     }
     const blocks = {
       injection: pos(J.iBCI) && nonneg(J.probePos) && num(J.probePos) <= num(H.length) && (J.mode !== 'calibrated' || nonneg(J.zp)) && (J.limitDb === '' || J.limitDb === undefined || Number.isFinite(num(J.limitDb))),
@@ -353,10 +422,11 @@
     };
     const messages = [];
     if (H.shield === 'shielded') messages.push('Faisceau extérieur blindé : non modélisé en V1 (le modèle MTL traite un faisceau non blindé).');
-    if (N > 16) messages.push('Plus de 16 conducteurs : calcul MTL limité à 16 conducteurs en V1.');
+    if (N > MAX_WIRES.detailed) messages.push(`Plus de ${MAX_WIRES.detailed} conducteurs : le modèle détaillé est limité à ${MAX_WIRES.detailed} conducteurs (temps de calcul). Utiliser le modèle approché, qui accepte jusqu'à ${MAX_WIRES.approx} conducteurs.`);
+    else if (N > 25) messages.push(`${N} conducteurs en modèle détaillé : le calcul peut prendre quelques secondes.`);
     if (!H.wires.some(w => w.func === 'gnd')) messages.push('Aucun conducteur GND / 0 V : les tensions carte sont référencées au 0 V carte seul.');
     if (pos(H.length) && nonneg(J.probePos) && num(J.probePos) > num(H.length)) messages.push('La pince est positionnée au-delà de la longueur du harnais.');
-    return { blocks, ready: Object.values(blocks).every(Boolean) && N <= 16 && H.shield !== 'shielded', messages };
+    return { blocks, ready: Object.values(blocks).every(Boolean) && N <= MAX_WIRES.detailed && H.shield !== 'shielded', messages };
   }
 
   /* ---------- Diamètres effectifs (mm) ---------- */
@@ -377,7 +447,8 @@
         const a = Math.acosh(h / R), Lcm = MU0 / (2 * Math.PI) * a, Ccm = 2 * Math.PI * EPS0 / a;
         const Lw = n * Lcm, Cw = Ccm / n, v = C0, y = 1 / (v * Lw);
         const Yc = Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => (i === j ? y : 0)));
-        return { Yc, v, n, Lcm, Ccm, Zcm: v * Lcm, Lw, Cw, Zw: v * Lw, D: Dmm, h, errors: [], warnings: [] };
+        const eye = Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => (i === j ? 1 : 0)));
+        return { Yc, v, n, Lcm, Ccm, Zcm: v * Lcm, Lw, Cw, Zw: v * Lw, D: Dmm, h, eig: { vals: Array(n).fill(Cw), T: eye }, errors: [], warnings: [] };
       };
       const PH = mk(N, harnessBundleD(H), 0.05, 'Harnais extérieur');
       let PI = null;
@@ -385,7 +456,7 @@
         const Dint = isRibbon(I.type) ? N * num(I.pitch) / 2 : internalBundleD(I, N, num(H.isoD)); // nappe : rayon équivalent = largeur / 4
         PI = mk(N, Dint, num(I.height) / 1000, 'Câblage interne');
       }
-      return { PH, PI, approx: true, errors: [...PH.errors, ...((PI && PI.errors) || [])], warnings: [] };
+      return { PH, PI, approx: true, rw: num(H.wireD) / 2000, errors: [...PH.errors, ...((PI && PI.errors) || [])], warnings: [] };
     }
     const rw = num(H.wireD) / 2000, iso = num(H.isoD) / 1000;
     const geoH = bundlePositions(N, harnessBundleD(H) / 1000, iso, 0.05);
@@ -396,12 +467,13 @@
       const geoI = isRibbon(I.type) ? rowPositions(N, num(I.pitch) / 1000, h) : bundlePositions(N, internalBundleD(I, N, num(H.isoD)) / 1000, iso, h);
       PI = lineParams(geoI, rw, 1);
     }
-    return { PH, PI, errors: [...(PH.errors || []), ...((PI && PI.errors) || [])], warnings: [...(PH.warnings || []), ...((PI && PI.warnings) || [])] };
+    return { PH, PI, rw, errors: [...(PH.errors || []), ...((PI && PI.errors) || [])], warnings: [...(PH.warnings || []), ...((PI && PI.warnings) || [])] };
   }
 
   /* ---------- Construction et résolution à une fréquence ---------- */
   function buildCircuit(cfg, prep, f) {
     const w = 2 * Math.PI * f, H = cfg.harness, N = H.wires.length, ck = new Circuit();
+    const Rp = H.rMode === 'none' ? 0 : rPrime(f, prep.rw);
     const L0 = ck.node(), lw = ck.nodes(N);
     const gndIdx = H.wires.findIndex(x => x.func === 'gnd');
     // Terminaisons côté charge
@@ -421,11 +493,11 @@
     // Harnais : charge → pince → connecteur équipement
     const Lh = num(H.length), xp = Math.min(Math.max(num(cfg.injection.probePos), 0), Lh);
     let pa = lw;
-    if (Lh - xp > 1e-9) { pa = ck.nodes(N); ck.line(lw, pa, Lh - xp, prep.PH, w); }
+    if (Lh - xp > 1e-9) { pa = ck.nodes(N); ck.line(lw, pa, Lh - xp, prep.PH, w, Rp); }
     const pb = ck.nodes(N);
     for (let k = 0; k < N; k++) ck.vsrc(pa[k], pb[k]);
     let ce = pb;
-    if (xp > 1e-9) { ce = ck.nodes(N); ck.line(pb, ce, xp, prep.PH, w); }
+    if (xp > 1e-9) { ce = ck.nodes(N); ck.line(pb, ce, xp, prep.PH, w, Rp); }
     // Connecteur entrée équipement
     const ci = ck.nodes(N);
     const refEq = gndIdx >= 0 ? ci[gndIdx] : 0;
@@ -437,7 +509,7 @@
     });
     // Câblage interne
     let cd = ci;
-    if (prep.PI) { cd = ck.nodes(N); ck.line(ci, cd, num(cfg.internal.length), prep.PI, w); }
+    if (prep.PI) { cd = ck.nodes(N); ck.line(ci, cd, num(cfg.internal.length), prep.PI, w, Rp); }
     // Carte
     const C0n = ck.node(), out = Array(N).fill(null);
     H.wires.forEach((wv, k) => {
@@ -594,9 +666,47 @@
       }
       out.push({ name: 'Mode approché : 3 conducteurs équivalents = ligne de mode commun du faisceau', ok: worst < 1e-9, detail: `écart relatif max = ${worst.toExponential(2)} ; Z0 mode commun = ${P.Zcm.toFixed(1)} Ω` });
     }
+    // T8 : ligne avec pertes court-circuitée : I = E·Y0·coth(γl), Y0 = √(y/z), γ = √(zy), z = R′ + jωL′, y = jωC′
+    {
+      const h = 0.05, rw = 0.4e-3, P = lineParams({ pts: [{ x: 0, y: h }], warnings: [] }, rw, 1), l = 1;
+      let worst = 0;
+      for (const f of [1e4, 1e6, 75e6, 150e6, 400e6]) {
+        const w = 2 * Math.PI * f, Rp = rPrime(f, rw);
+        const ck = new Circuit(), n1 = ck.node(), n2 = ck.node(); ck.vsrc(0, n1); ck.line([n1], [n2], l, P, w, Rp); ck.short(n2, 0);
+        const I = abs(ck.solve(cx(1, 0), cx(0, 0)).I(0));
+        const z = cx(Rp, w * P.L[0][0]), y = cx(0, w * P.C[0][0]), g = scl(csqrt(mul(z, y)), l), Y0 = csqrt(div(y, z));
+        const e2 = cexp(scl(g, -2)), ref = abs(mul(Y0, div(add(cx(1, 0), e2), sub(cx(1, 0), e2))));
+        worst = Math.max(worst, rel(I, ref));
+      }
+      out.push({ name: 'Ligne avec pertes (effet de peau) court-circuitée : I = E·Y0·coth(γl), de 10 kHz à 400 MHz', ok: worst < 1e-6, detail: `écart relatif max = ${worst.toExponential(2)}` });
+    }
+    // T9 : continuité — pertes infimes sur un faisceau de 3 fils = ligne sans pertes
+    {
+      const geo = ringPositions(3, 0.01, 1.4e-3, 0.05), P = lineParams(geo, 0.4e-3, 1); let worst = 0;
+      for (const f of [1e5, 33e6, 123e6]) {
+        const w = 2 * Math.PI * f, run = Rp => {
+          const ck = new Circuit(), a = ck.nodes(3), b = ck.nodes(3), s1 = ck.node();
+          ck.vsrc(0, s1); ck.z(s1, a[0], cx(50, 0)); a.slice(1).forEach(n => ck.z(n, 0, cx(10, 0)));
+          ck.line(a, b, 1, P, w, Rp); b.forEach((n, k) => ck.z(n, 0, cx(20 + 30 * k, 0)));
+          return ck.solve(cx(1, 0), cx(0, 0)).V(b[2]);
+        };
+        const v0 = run(0), v1 = run(1e-9); worst = Math.max(worst, abs(sub(v0, v1)) / abs(v0));
+      }
+      out.push({ name: 'Continuité : pertes infimes = ligne sans pertes (faisceau de 3 fils, modes couplés)', ok: worst < 1e-6, detail: `écart relatif max = ${worst.toExponential(2)}` });
+    }
+    // T10 : résistance réelle (R + Ls) // Cp : impédance analytique
+    {
+      const R = 10, ls = 1.2, cp = 0.3; let worst = 0;
+      for (const f of [1e6, 1e8, 4e8]) {
+        const w = 2 * Math.PI * f, z = realR(R, ls, cp, w);
+        const zs = cx(R, w * ls * 1e-9), ref = div(zs, add(cx(1, 0), mul(zs, cx(0, w * cp * 1e-12))));
+        worst = Math.max(worst, abs(sub(z, ref)) / abs(ref));
+      }
+      out.push({ name: 'Charge résistive réelle : (R + jωLs) en parallèle avec Cp', ok: worst < 1e-12, detail: `écart relatif max = ${worst.toExponential(2)}` });
+    }
     return out;
   }
 
-  const api = { C0, MU0, EPS0, cx, abs, ringPositions, bundlePositions, packingRatio, autoBundleD, harnessBundleD, internalBundleD, rowPositions, lineParams, inductanceMatrix, Circuit, prepare, buildCircuit, point, sweep, frequencies, bandLimits, approxLimit, checkConfig, selfTests, termComplete, filterComplete, loadComplete, isShieldedInternal, isRibbon, RJIG };
+  const api = { realR, rPrime, rDC, skinDepth, jacobiEig, MAX_WIRES, C0, MU0, EPS0, cx, abs, ringPositions, bundlePositions, packingRatio, autoBundleD, harnessBundleD, internalBundleD, rowPositions, lineParams, inductanceMatrix, Circuit, prepare, buildCircuit, point, sweep, frequencies, bandLimits, approxLimit, checkConfig, selfTests, termComplete, filterComplete, loadComplete, isShieldedInternal, isRibbon, RJIG };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else global.BCIEngine = api;
 })(typeof window !== 'undefined' ? window : globalThis);

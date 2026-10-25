@@ -69,8 +69,9 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .wire h4{margin:0 0 6px;font-size:14px}
 .tag{display:inline-block;font-size:11px;font-weight:700;padding:2px 6px;border-radius:5px;background:#eef2f5;color:#34495e}
 .tag.n{background:#e8eefc;color:#1d3f8f}.tag.t{background:#e6f4ea;color:#1e6b36}.tag.m{background:#fff1dc;color:#7a4a00}
+.copyBtn{font-size:12px;padding:4px 8px;margin-left:10px;font-weight:400}
 .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;margin-top:6px}
-.legend span::before{content:"";display:inline-block;width:14px;height:3px;margin-right:5px;vertical-align:middle;background:var(--c)}
+
 svg text{font-family:Arial,Helvetica,sans-serif}
 .head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
 .headText{min-width:0;flex:1 1 420px}
@@ -173,26 +174,29 @@ svg text{font-family:Arial,Helvetica,sans-serif}
   <div class="fixed"><b>Hauteur du faisceau au-dessus du plan de masse :</b> 5 cm (montage d'essai).</div>
   <div class="inl">
    <div><label>Longueur (m)</label><input data-h="length" type="number" min="0" step="any"></div>
-   <div><label>Nombre de conducteurs</label><input id="hN" type="number" min="1" max="16" step="1"></div>
+   <div><label>Nombre de conducteurs (60 au plus)</label><input id="hN" type="number" min="1" max="60" step="1"></div>
    <div><label>Blindage global</label><select data-h="shield"><option value="none">Non blindé</option><option value="shielded">Blindé (non modélisé en V1)</option></select></div>
   </div>
   <div class="inl">
+   <div><label>Diamètre de l'âme d'un conducteur (mm)</label><input data-h="wireD" type="number" min="0" step="any"></div>
+   <div><label>Résistance linéique des conducteurs</label><select data-h="rMode"><option value="auto">Calculée : cuivre, effet de peau</option><option value="none">Négligée (lignes sans pertes)</option></select></div>
    <div><label>Diamètre isolé d'un conducteur (mm)</label><input data-h="isoD" type="number" min="0" step="any"></div>
    <div><label>Diamètre extérieur du faisceau</label><select data-h="bundleMode"><option value="auto">Calculé automatiquement</option><option value="manual">Saisi (mesuré)</option></select></div>
    <div id="hBundleManual"><label>Diamètre extérieur saisi (mm)</label><input data-h="bundleD" type="number" min="0" step="any"></div>
    <div id="hBundleAuto"><label>Diamètre calculé</label><div class="fixed" id="hBundleAutoVal">—</div></div>
   </div>
   <div class="small" style="margin-top:6px">Diamètre calculé : empilement compact des conducteurs isolés (diamètre minimal du cercle contenant N cercles égaux), sans gaine ni tresse. Le saisir s'il est mesuré sur le faisceau réel.</div>
+  <div class="small" style="margin-top:4px" id="hRInfo"></div>
   <div class="small approxOnly" style="margin-top:4px">Mode approché : la capacité et l'inductance du faisceau vers le plan d'essai (5 cm) sont calculées à partir de ce diamètre, puis réparties également entre les conducteurs. Les couplages entre conducteurs sont négligés, ce qui majore les tensions carte.</div>
   <div class="detOnly">
   <div class="inl">
-   <div><label>Diamètre de l'âme d'un conducteur (mm)</label><input data-h="wireD" type="number" min="0" step="any"></div>
    <div><label>Permittivité effective εr</label><input data-h="epsr" type="number" min="1" step="any"></div>
   </div>
   <div class="small" style="margin-top:4px">εr = 1 : faisceau dans l'air, isolants négligés (milieu homogène). Une valeur supérieure représente l'effet moyen des isolants sur la vitesse de propagation.</div>
   </div>
   <h3>Conducteurs — fonction et terminaison côté charge</h3>
   <div class="small">Charges amont de l'injection. Signal / alimentation : impédance entre le conducteur et le 0 V de la charge. GND / 0 V : conducteur relié au 0 V de la charge ; on précise si ce 0 V est relié au châssis (plan de masse). C'est cette liaison qui referme la boucle du courant BCI côté charge. Blindage : reprise vers le plan de masse.</div>
+  <div id="hCopyState" class="small" aria-live="polite"></div>
   <div id="hWires"></div>
   <div class="actions"><button data-close>Annuler</button><button class="primary" id="applyHarness">Appliquer</button></div>
  </div>
@@ -204,6 +208,7 @@ svg text{font-family:Arial,Helvetica,sans-serif}
   <div class="modalHead"><div><h2>Connecteur entrée équipement</h2><div class="small">Les conducteurs sont repris du harnais. Le boîtier de l'équipement est supposé relié au plan de masse.</div></div><button class="closeBtn" data-close aria-label="Fermer">×</button></div>
   <label>Type de connecteur</label>
   <select id="cMode"><option value="transparent">Transparent — aucun composant</option><option value="filtered">Filtrant — filtrage défini par conducteur</option></select>
+  <div id="cCopyState" class="small" aria-live="polite"></div>
   <div id="cWires"></div>
   <div class="actions"><button data-close>Annuler</button><button class="primary" id="applyConnector">Appliquer</button></div>
  </div>
@@ -254,6 +259,7 @@ svg text{font-family:Arial,Helvetica,sans-serif}
    <div data-dep="type:C"><label>C</label><div class="inl"><input data-g="c" type="number" min="0" step="any"><select data-g="cunit"><option value="pF">pF</option><option value="nF">nF</option><option value="uF">µF</option></select></div></div>
   </div>
   <h3>Conducteurs</h3>
+  <div id="fCopyState" class="small" aria-live="polite"></div>
   <div id="fWires"></div>
   <div class="actions"><button data-close>Annuler</button><button class="primary" id="applyFilter">Appliquer</button></div>
  </div>
@@ -268,10 +274,15 @@ svg text{font-family:Arial,Helvetica,sans-serif}
   <div class="card" style="margin-top:14px">
    <div class="inl" style="justify-content:space-between">
     <div><b id="chartTitle">Tension différentielle à la charge carte en fonction de la fréquence</b><div class="small">Échelles logarithmiques. Cocher les conducteurs à afficher.</div></div>
-    <div class="inl noprint"><select id="yQty"><option value="v">Tension charge carte</option><option value="i">Courant du fil</option></select><select id="yUnit"><option value="V">Tension (V)</option><option value="dBuV">Niveau (dBµV)</option></select><button type="button" id="btnPrint">Imprimer</button></div>
+    <div class="inl noprint"><button type="button" id="btnShowAll">Tout afficher</button><button type="button" id="btnShowNone">Tout masquer</button><select id="yQty"><option value="v">Tension charge carte</option><option value="i">Courant du fil</option></select><select id="yUnit"><option value="V">Tension (V)</option><option value="dBuV">Niveau (dBµV)</option></select><button type="button" id="btnCsv">Exporter les courbes (CSV)</button><button type="button" id="btnPrint">Imprimer</button></div>
    </div>
    <svg id="chart" viewBox="0 0 900 400" style="width:100%;height:auto;margin-top:8px;border:1px solid var(--line);border-radius:8px;background:#fff" role="img" aria-label="Courbes de tension carte"></svg>
    <div class="legend" id="legend"></div>
+   <div id="csvBox" class="noprint" hidden style="margin-top:10px">
+    <label for="csvText">Courbes au format CSV — à copier puis coller dans un tableur, ou à enregistrer dans un fichier .csv</label>
+    <textarea id="csvText" readonly rows="8" style="width:100%;font:12px Consolas,monospace;padding:8px;border:1px solid #aeb8c2;border-radius:7px;background:#fff;color:#17202a"></textarea>
+    <div class="inl" style="margin-top:6px"><button type="button" id="btnCsvCopy">Copier</button><button type="button" id="btnCsvClose">Fermer</button><span id="csvState" class="small"></span></div>
+   </div>
   </div>
   <div id="resDetail"></div>
   <div class="card">
@@ -296,7 +307,7 @@ function referenceCase() {
     model: 'approx',
     applied: { harness: false, connector: false, internal: false, cardConnector: false, filter: false },
     injection: { iBCI: 100, band: 'do160', probePos: 0.05, mode: 'current', zp: '', limitDb: '' },
-    harness: { length: 1, lw: 1, bundleMode: 'auto', bundleD: '', wireD: 0.8, isoD: 1.4, epsr: 1, shield: 'none', wires: [
+    harness: { length: 1, lw: 1, rMode: 'auto', bundleMode: 'auto', bundleD: '', wireD: 0.8, isoD: 1.4, epsr: 1, shield: 'none', wires: [
       { func: 'signal', cl: { type: 'R', r: 100, l: '', lunit: 'nH', c: '', cunit: 'nF', z: '' } },
       { func: 'gnd', cl: { ref: 'chassis', type: 'direct', z: '', c: '', cunit: 'nF' } },
       { func: 'power', cl: { type: 'R', r: 10, l: '', lunit: 'nH', c: '', cunit: 'nF', z: '' } }
@@ -332,6 +343,7 @@ function normalize(s, keepApplied = false) {
   o.applied = keepApplied && s.applied ? Object.assign(referenceCase().applied, s.applied) : referenceCase().applied;
   if (!o.harness.bundleMode) o.harness.bundleMode = 'manual';
   if (o.harness.lw === undefined) o.harness.lw = 1;
+  if (!o.harness.rMode) o.harness.rMode = 'auto';
   if (!o.model) o.model = 'approx';
   if (!o.internal.bundleMode) o.internal.bundleMode = 'manual';
   if (o.internal.present === undefined) o.internal.present = false;
@@ -413,15 +425,26 @@ function harnessWireHTML(w, k) {
     body = `<div class="inl">
       <div><label>Terminaison vers le 0 V charge</label><select data-f="type">${[['R', 'R'], ['C', 'C'], ['RCs', 'RC série'], ['RCp', 'RC parallèle'], ['LC', 'LC série'], ['Z', '|Z| réelle'], ['open', 'Ouvert']].map(([v, t]) => opt(v, t, c.type)).join('')}</select></div>
       <div data-dep="type:R,RCs,RCp"><label>R (Ω)</label>${numIn('r', c.r)}</div>
+      <div data-dep="type:R"><label>L parasite série (nH)</label>${numIn('ls', c.ls, 'Non modélisée')}</div>
+      <div data-dep="type:R"><label>C parasite parallèle (pF)</label>${numIn('cp', c.cp, 'Non modélisée')}</div>
       <div data-dep="type:LC"><label>L</label><div class="inl">${numIn('l', c.l)}${unitSel('lunit', c.lunit || 'nH', LU)}</div></div>
       <div data-dep="type:C,RCs,RCp,LC"><label>C</label><div class="inl">${numIn('c', c.c)}${unitSel('cunit', c.cunit || 'nF', CU)}</div></div>
       <div data-dep="type:Z"><label>|Z| (Ω)</label>${numIn('z', c.z)}</div></div>`;
   }
-  return `<div class="wire" data-k="${k}"><h4>Fil ${k + 1} <select data-role="func" style="margin-left:8px">${['signal', 'power', 'gnd', 'shield'].map(f => opt(f, funcLabel(f), w.func)).join('')}</select></h4>${body}</div>`;
+  const copy = w.func === 'signal' || w.func === 'power' ? `<button type="button" class="copyBtn" data-copy="${k}">Copier vers tous les fils « ${funcLabel(w.func)} »</button>` : '';
+  return `<div class="wire" data-k="${k}"><h4>Fil ${k + 1} <select data-role="func" style="margin-left:8px">${['signal', 'power', 'gnd', 'shield'].map(f => opt(f, funcLabel(f), w.func)).join('')}</select>${copy}</h4>${body}</div>`;
 }
 let hDraft = null;
 function renderHarnessWires() {
   const box = $('#hWires'); box.innerHTML = hDraft.wires.map(harnessWireHTML).join('');
+  $$('[data-copy]', box).forEach(b => b.addEventListener('click', () => {
+    captureHarnessWires();
+    const k = +b.dataset.copy, src = hDraft.wires[k];
+    let n = 0;
+    hDraft.wires.forEach((w, j) => { if (j !== k && w.func === src.func) { w.cl = JSON.parse(JSON.stringify(src.cl)); n++; } });
+    renderHarnessWires();
+    $('#hCopyState').textContent = n ? `Terminaison du fil ${k + 1} copiée sur ${n} autre(s) fil(s) « ${funcLabel(src.func)} ».` : `Aucun autre fil « ${funcLabel(src.func)} ».`;
+  }));
   $$('.wire', box).forEach(row => {
     updateDeps(row);
     row.addEventListener('change', e => {
@@ -436,6 +459,12 @@ function renderHarnessWires() {
 function captureHarnessWires() {
   $$('#hWires .wire').forEach(row => { const k = +row.dataset.k; hDraft.wires[k].cl = Object.assign({}, hDraft.wires[k].cl, readFields(row, 'f')); });
 }
+function syncHarnessR() {
+  const d = +$('[data-h="wireD"]').value, none = $('[data-h="rMode"]').value === 'none', rw = d / 2000;
+  $('#hRInfo').textContent = none ? 'Résistance linéique négligée : les pics de résonance et la répartition basse fréquence entre fils de faible impédance sont moins réalistes.'
+    : d > 0 ? `R′ = ${nf(E.rDC(rw) * 1e3, 1)} mΩ/m en continu, ${nf(E.rPrime(1e6, rw) * 1e3, 0)} mΩ/m à 1 MHz, ${nf(E.rPrime(1e8, rw), 2)} Ω/m à 100 MHz (cuivre, effet de peau). Valeur identique pour tous les conducteurs.` : 'Renseigner le diamètre de l\'âme.';
+}
+['wireD', 'rMode'].forEach(k => { $(`[data-h="${k}"]`).addEventListener('input', syncHarnessR); $(`[data-h="${k}"]`).addEventListener('change', syncHarnessR); });
 function syncHarnessD() {
   const manual = $('[data-h="bundleMode"]').value === 'manual';
   $('#hBundleManual').hidden = !manual; $('#hBundleAuto').hidden = manual;
@@ -449,15 +478,17 @@ function openHarness() {
   hDraft = JSON.parse(JSON.stringify(state.harness));
   writeFields($('#harnessModal'), 'h', hDraft);
   $('#hN').value = hDraft.wires.length;
-  syncHarnessD();
+  syncHarnessD(); syncHarnessR();
   renderHarnessWires();
   openModal('harnessModal');
 }
 $('#hN').addEventListener('change', () => {
   captureHarnessWires();
-  const n = Math.max(1, Math.min(16, Math.round(+$('#hN').value || 1)));
+  const n = Math.max(1, Math.min(E.MAX_WIRES.approx, Math.round(+$('#hN').value || 1)));
   $('#hN').value = n;
-  while (hDraft.wires.length < n) hDraft.wires.push(defaultWire());
+  // Les fils ajoutés reprennent la fonction et la terminaison du dernier fil signal ou alimentation.
+  const model = [...hDraft.wires].reverse().find(w => w.func === 'signal' || w.func === 'power');
+  while (hDraft.wires.length < n) hDraft.wires.push(model ? JSON.parse(JSON.stringify(model)) : defaultWire());
   hDraft.wires.length = n;
   renderHarnessWires(); syncHarnessD();
 });
@@ -490,9 +521,24 @@ function loadFieldsHTML(d) {
   return `<div class="inl" style="margin-top:6px">
     <div><label>Charge carte (vers 0 V carte)</label><select data-f="loadType">${[['R', 'R'], ['C', 'C'], ['L', 'L'], ['RCs', 'RC série'], ['RCp', 'RC parallèle'], ['LC', 'LC série'], ['Z', '|Z| réelle']].map(([v, t]) => opt(v, t, d.loadType)).join('')}</select></div>
     <div data-dep="loadType:R,RCs,RCp,Z"><label>R / |Z| (Ω)</label>${numIn('loadR', d.loadR)}</div>
+    <div data-dep="loadType:R"><label>L parasite série (nH)</label>${numIn('loadLs', d.loadLs, 'Non modélisée')}</div>
+    <div data-dep="loadType:R"><label>C parasite parallèle (pF)</label>${numIn('loadCp', d.loadCp, 'Non modélisée')}</div>
     <div data-dep="loadType:L,LC"><label>L</label><div class="inl">${numIn('loadL', d.loadL)}${unitSel('loadLUnit', d.loadLUnit || 'nH', LU)}</div></div>
     <div data-dep="loadType:C,RCs,RCp,LC"><label>C</label><div class="inl">${numIn('loadC', d.loadC)}${unitSel('loadCUnit', d.loadCUnit || 'pF', CU)}</div></div>
   </div>`;
+}
+// Copie les valeurs saisies d'un fil vers tous les fils de même fonction (dans la fenêtre ouverte, avant « Appliquer »).
+function bindCopyRows(box, stateSel) {
+  $(stateSel).textContent = '';
+  $$('[data-copyrow]', box).forEach(b => b.addEventListener('click', () => {
+    const src = b.closest('.wire'), vals = readFields(src, 'f');
+    let n = 0;
+    $$('.wire[data-edit]', box).forEach(row => {
+      if (row === src || row.dataset.func !== src.dataset.func) return;
+      writeFields(row, 'f', vals); updateDeps(row); n++;
+    });
+    $(stateSel).textContent = n ? `Valeurs du fil ${+src.dataset.k + 1} copiées sur ${n} autre(s) fil(s) « ${funcLabel(src.dataset.func)} ». Cliquer sur « Appliquer » pour valider.` : `Aucun autre fil « ${funcLabel(src.dataset.func)} ».`;
+  }));
 }
 function bindRows(box) { $$('.wire', box).forEach(row => { updateDeps(row); row.addEventListener('change', () => updateDeps(row)); row.addEventListener('input', () => updateDeps(row)); }); }
 
@@ -501,9 +547,9 @@ function openConnector() {
   const box = $('#cWires');
   box.innerHTML = state.harness.wires.map((w, k) => {
     if (w.func === 'gnd' || w.func === 'shield') return `<div class="wire small" data-k="${k}"><h4>Fil ${k + 1} — ${funcLabel(w.func)}</h4>${w.func === 'gnd' ? 'Traversée directe du connecteur (aucun filtrage sur le 0 V).' : 'Blindage repris au châssis de l\'équipement (360°).'}</div>`;
-    return `<div class="wire" data-k="${k}" data-edit><h4>Fil ${k + 1} — ${funcLabel(w.func)}</h4>${filterFieldsHTML(state.connector.wires[k] || defaultConnWire(), true, [['chassis', 'Châssis'], ['gnd', 'GND / 0 V (conducteur GND)']])}</div>`;
+    return `<div class="wire" data-k="${k}" data-edit data-func="${w.func}"><h4>Fil ${k + 1} — ${funcLabel(w.func)}<button type="button" class="copyBtn" data-copyrow="${k}">Copier vers tous les fils « ${funcLabel(w.func)} »</button></h4>${filterFieldsHTML(state.connector.wires[k] || defaultConnWire(), true, [['chassis', 'Châssis'], ['gnd', 'GND / 0 V (conducteur GND)']])}</div>`;
   }).join('');
-  bindRows(box);
+  bindRows(box); bindCopyRows(box, '#cCopyState');
   const sync = () => { box.style.display = $('#cMode').value === 'filtered' ? '' : 'none'; };
   $('#cMode').onchange = sync; sync();
   openModal('connectorModal');
@@ -522,9 +568,9 @@ function openFilter() {
     if (w.func === 'gnd') return `<div class="wire small" data-k="${k}"><h4>Fil ${k + 1} — GND / 0 V</h4>Raccordé directement au 0 V de la carte.</div>`;
     if (w.func === 'shield') return `<div class="wire small" data-k="${k}"><h4>Fil ${k + 1} — Blindage</h4>Repris au châssis au connecteur d'entrée ; n'arrive pas sur la carte.</div>`;
     const d = state.filters[k];
-    return `<div class="wire" data-k="${k}" data-edit><h4>Fil ${k + 1} — ${funcLabel(w.func)}</h4>${filterFieldsHTML(d, true, [['gnd', '0 V carte'], ['chassis', 'Châssis']])}${loadFieldsHTML(d)}</div>`;
+    return `<div class="wire" data-k="${k}" data-edit data-func="${w.func}"><h4>Fil ${k + 1} — ${funcLabel(w.func)}<button type="button" class="copyBtn" data-copyrow="${k}">Copier vers tous les fils « ${funcLabel(w.func)} »</button></h4>${filterFieldsHTML(d, true, [['gnd', '0 V carte'], ['chassis', 'Châssis']])}${loadFieldsHTML(d)}</div>`;
   }).join('');
-  bindRows(box);
+  bindRows(box); bindCopyRows(box, '#fCopyState');
   openModal('filterModal');
 }
 $('#applyFilter').addEventListener('click', () => {
@@ -645,6 +691,7 @@ function renderParams() {
      <tr><td>Inductance de mode commun du faisceau</td><td class="num">${nf(P.Lcm * 1e6, 3)} µH/m</td><td class="num">${Q ? nf(Q.Lcm * 1e6, 3) + ' µH/m' : '—'}</td></tr>
      <tr><td>Impédance caractéristique de mode commun</td><td class="num">${nf(P.Zcm, 1)} Ω</td><td class="num">${Q ? nf(Q.Zcm, 1) + ' Ω' : '—'}</td></tr>
      <tr><td>Par conducteur (faisceau réparti sur ${n})</td><td class="num">${nf(P.Lw * 1e6, 3)} µH/m · ${nf(P.Cw * 1e12, 2)} pF/m</td><td class="num">${Q ? nf(Q.Lw * 1e6, 3) + ' µH/m · ' + nf(Q.Cw * 1e12, 2) + ' pF/m' : '—'}</td></tr>
+     <tr><td>Résistance linéique d'un conducteur (continu · 100 MHz)</td><td class="num">${H.rMode === 'none' ? 'négligée' : nf(E.rDC(H.wireD / 2000) * 1e3, 1) + ' mΩ/m · ' + nf(E.rPrime(1e8, H.wireD / 2000), 2) + ' Ω/m'}</td><td class="num">${Q && H.rMode !== 'none' ? 'idem' : '—'}</td></tr>
      <tr><td>Résonances λ/4 et λ/2 du harnais (repères)</td><td class="num">${fmtF(E.C0 / (4 * H.length))} · ${fmtF(E.C0 / (2 * H.length))}</td><td class="num"></td></tr>
     </table>
     <div class="small" style="margin-top:8px">C′ = 2πε0 / acosh(h/R) et L′ = μ0/2π · acosh(h/R) pour un cylindre de rayon R à la hauteur h ; propagation à la vitesse de la lumière. Les fréquences de résonance réelles dépendent aussi des terminaisons.</div>`;
@@ -662,6 +709,7 @@ function renderParams() {
     <tr><td>Diamètre extérieur du faisceau</td><td class="num">${nf(D, 2)} mm</td><td class="small">${H.bundleMode === 'manual' ? 'saisi' : 'calculé (empilement compact)'}</td></tr>
     <tr><td>Capacité d'un cylindre plein Ø ${nf(D, 2)} mm (contrôle)</td><td class="num">${nf(cyl * 1e12, 2)} pF/m</td><td class="small">2πε/acosh(h/R)</td></tr>
     <tr><td>Impédance caractéristique de mode commun</td><td class="num">${nf(P.Zcm, 1)} Ω</td><td class="small">1 / Σ Y<sub>c</sub></td></tr>
+    <tr><td>Résistance linéique d'un conducteur (continu · 100 MHz)</td><td class="num">${H.rMode === 'none' ? 'négligée' : nf(E.rDC(H.wireD / 2000) * 1e3, 1) + ' mΩ/m · ' + nf(E.rPrime(1e8, H.wireD / 2000), 2) + ' Ω/m'}</td><td class="small">cuivre, effet de peau</td></tr>
     <tr><td>Vitesse de propagation</td><td class="num">${nf(P.v / E.C0, 3)} c</td><td class="small">c / √εr</td></tr>
     <tr><td>Capacité totale du harnais vers le plan</td><td class="num">${nf(P.Ccm * H.length * 1e12, 1)} pF</td><td class="small">C′<sub>MC</sub> × ${nf(H.length, 2)} m</td></tr>
    </table>
@@ -685,14 +733,20 @@ function renderTestPoint(chk) {
 
 /* ---------- Résultats ---------- */
 const COLORS = ['#1565c0', '#c62828', '#2e7d32', '#6a1b9a', '#ef6c00', '#00838f', '#5d4037', '#ad1457'];
+// Au-delà de 8 conducteurs, les couleurs se répètent avec un trait différent.
+const DASHES = ['', '7 4', '2 3', '9 3 2 3'];
+const dashOf = k => DASHES.at(Math.floor(k / COLORS.length) % DASHES.length);
+const legendLine = k => `<svg width="24" height="8" aria-hidden="true" style="vertical-align:middle;margin-right:5px"><line x1="0" y1="4" x2="24" y2="4" stroke="${COLORS[k % COLORS.length]}" stroke-width="2.5" stroke-dasharray="${dashOf(k)}"/></svg>`;
 let shown = null;
 const HYP_DETAILED = [
-  ['t', 'THÉORIQUE', 'Harnais et câblage interne : lignes multiconductrices sans pertes en milieu homogène. L′ par méthode des images (fils fins au-dessus d\'un plan parfait), C′ = μ0·ε0·εr·L′⁻¹ ; solution exacte par paramètres de chaîne, valable sur toute la bande.'],
+  ['t', 'THÉORIQUE', 'Résistance linéique des conducteurs en cuivre, avec effet de peau : R′ = R′dc·√(1 + (r/2δ)²), identique sur tous les fils ; résolution modale exacte de la ligne avec pertes. Plan de masse parfait ; pertes diélectriques et rayonnement non modélisés.'],
+  ['t', 'THÉORIQUE', 'Harnais et câblage interne : lignes multiconductrices en milieu homogène. L′ par méthode des images (fils fins au-dessus d\'un plan parfait), C′ = μ0·ε0·εr·L′⁻¹ ; solution exacte par paramètres de chaîne, valable sur toute la bande.'],
   ['m', 'MODÈLE', 'Conducteurs répartis en couches concentriques dans le toron (ou alignés pour une nappe). La géométrie réelle d\'un toron varie le long du faisceau.'],
   ['m', 'MODÈLE', 'Pince = même f.é.m. série sur chaque conducteur à la position saisie (transformateur entourant tout le faisceau).'],
   ['n', 'NORMATIF', 'Le niveau de courant est une donnée d\'entrée du référentiel d\'essai. Mode « courant imposé » : le courant total du faisceau au droit de la pince est égal au niveau saisi (la f.é.m. nécessaire peut être physiquement inatteignable). Mode « pince calibrée » : f.é.m. réglée pour donner le niveau dans une boucle de calibration de 100 Ω (2 × 50 Ω), puis appliquée telle quelle, avec limitation optionnelle du courant.'],
   ['m', 'MODÈLE', CAL_NOTE],
   ['m', 'MODÈLE', 'Boîtier de l\'équipement relié au plan de masse ; blindages de conducteurs repris au châssis au connecteur d\'entrée.'],
+  ['m', 'MODÈLE', 'Charges résistives : R idéale par défaut ; inductance série et capacité parallèle parasites facultatives, Z = (R + jωLs) // Cp.'],
   ['m', 'MODÈLE', 'Non modélisés : pertes conductrices et diélectriques, rayonnement, faisceau blindé, impédance de transfert, non-linéarités des composants, impédance propre de la pince en fonction de la fréquence.']
 ];
 const HYP_APPROX = [
@@ -700,8 +754,10 @@ const HYP_APPROX = [
   ['t', 'THÉORIQUE', 'Le courant se répartit entre les conducteurs selon les charges amont et aval de chacun (résolution complète du réseau en complexe) : charge et liaison 0 V ↔ châssis côté charge ; connecteur, câblage interne, filtre, charge carte et liaison 0 V carte ↔ châssis côté équipement.'],
   ['t', 'THÉORIQUE', 'Harnais extérieur : ligne de mode commun d\'un cylindre équivalent de diamètre D à 5 cm du plan d\'essai, C′ = 2πε0/acosh(h/R), L′ = μ0/2π·acosh(h/R). Câblage interne : même calcul avec la hauteur conducteur–châssis saisie. Les résonances du faisceau sont représentées.'],
   ['m', 'MODÈLE', 'La ligne de mode commun est répartie également entre les conducteurs, sans couplage entre eux : cette simplification majore les tensions différentielles aux cartes.'],
+  ['t', 'THÉORIQUE', 'Résistance linéique des conducteurs en cuivre, avec effet de peau : R′ = R′dc·√(1 + (r/2δ)²), identique sur tous les fils. Plan de masse supposé parfait (sans pertes) ; pertes diélectriques et rayonnement non modélisés.'],
   ['m', 'MODÈLE', 'Pince = même f.é.m. série sur chaque conducteur à la position saisie. Boîtier de l\'équipement relié au plan de masse.'],
-  ['m', 'MODÈLE', CAL_NOTE]
+  ['m', 'MODÈLE', CAL_NOTE],
+  ['m', 'MODÈLE', 'Charges résistives : R idéale par défaut ; inductance série et capacité parallèle parasites facultatives, Z = (R + jωLs) // Cp, à renseigner d\'après la mesure des charges réelles.']
 ];
 function renderHyp() {
   const approx = state.model === 'approx';
@@ -766,6 +822,9 @@ function redraw() {
   drawChart(resCtx.pts, qi ? resCtx.allWires : resCtx.sigWires, qi ? (p, k) => p.wires[k].iProbe : (p, k) => p.wires[k].vout, qi ? 'A' : 'V', resCtx.flim);
 }
 $('#yUnit').addEventListener('change', redraw);
+const showAll = on => { if (!shown) return; shown = shown.map(() => on); $$('[data-show]').forEach(c => { c.checked = on; }); redraw(); };
+$('#btnShowAll').addEventListener('click', () => showAll(true));
+$('#btnShowNone').addEventListener('click', () => showAll(false));
 $('#yQty').addEventListener('change', redraw);
 
 function drawChart(pts, wires, get, unit, flim) {
@@ -797,11 +856,11 @@ function drawChart(pts, wires, get, unit, flim) {
   h += `<line x1="${L}" y1="${Hh - B}" x2="${W - R}" y2="${Hh - B}" stroke="#555"/><line x1="${L}" y1="${T}" x2="${L}" y2="${Hh - B}" stroke="#555"/>`;
   sel.forEach(o => {
     const c = COLORS[o.k % COLORS.length];
-    h += `<polyline fill="none" stroke="${c}" stroke-width="2" points="${pts.map(p => `${x(p.f).toFixed(1)},${y(get(p, o.k)).toFixed(1)}`).join(' ')}"/>`;
+    h += `<polyline fill="none" stroke="${c}" stroke-width="2" stroke-dasharray="${dashOf(o.k)}" points="${pts.map(p => `${x(p.f).toFixed(1)},${y(get(p, o.k)).toFixed(1)}`).join(' ')}"/>`;
   });
   h += `<text x="${(L + W - R) / 2}" y="${Hh - 10}" text-anchor="middle" font-size="13">Fréquence</text><text transform="translate(16 ${(T + Hh - B) / 2}) rotate(-90)" text-anchor="middle" font-size="13">${unit === 'A' ? 'Courant du conducteur (A)' : db ? 'Niveau (dBµV)' : 'Tension différentielle (V)'}</text>`;
   svg.innerHTML = h;
-  $('#legend').innerHTML = sel.map(o => `<span style="--c:${COLORS[o.k % COLORS.length]}">Fil ${o.k + 1} — ${funcLabel(o.w.func)}</span>`).join('');
+  $('#legend').innerHTML = sel.map(o => `<span>${legendLine(o.k)}Fil ${o.k + 1} — ${funcLabel(o.w.func)}</span>`).join('');
 }
 
 function showDetail(k, pts, flim) {
@@ -859,6 +918,47 @@ $('#btnCopy').addEventListener('click', () => {
   try { navigator.clipboard.writeText(t.value).then(() => done(true), () => { t.select(); done(false); }); } catch (e) { t.select(); done(false); }
 });
 $('#btnExportClose').addEventListener('click', () => { $('#exportBox').hidden = true; });
+
+/* ---------- Export CSV des courbes ---------- */
+// Format tableur français : séparateur « ; », virgule décimale, encodage UTF-8 avec BOM.
+function buildCsv() {
+  if (!resCtx) return '';
+  // Valeurs en notation scientifique (1,23456E-04) ; fréquence en hertz, sans exposant.
+  const fx = v => (Number.isFinite(v) ? v.toExponential(5).replace('.', ',').replace('e', 'E') : '');
+  const ff = v => String(Math.round(v * 100) / 100).replace('.', ',');
+  const wires = state.harness.wires.map((w, k) => ({ w, k }));
+  const head = ['Fréquence (Hz)', 'Courant total faisceau (A)'];
+  if (state.injection.mode !== 'calibrated' || state.model === 'approx') head.push('f.é.m. requise (V)');
+  wires.forEach(({ w, k }) => {
+    const n = `Fil ${k + 1} ${funcLabel(w.func)}`;
+    head.push(`${n} - courant (A)`);
+    if (w.func !== 'gnd' && w.func !== 'shield') head.push(`${n} - tension charge carte (V)`, `${n} - tension charge carte (dBµV)`);
+  });
+  const showE = state.injection.mode !== 'calibrated' || state.model === 'approx';
+  const rows = resCtx.pts.map(p => {
+    const r = [ff(p.f), fx(p.Ibundle)];
+    if (showE) r.push(fx(p.E));
+    wires.forEach(({ w, k }) => {
+      r.push(fx(p.wires[k].iProbe));
+      if (w.func !== 'gnd' && w.func !== 'shield') r.push(fx(p.wires[k].vout), fx(dBuV(p.wires[k].vout)));
+    });
+    return r.join(';');
+  });
+  return [head.join(';'), ...rows].join('\r\n');
+}
+$('#btnCsv').addEventListener('click', () => {
+  const csv = buildCsv(); if (!csv) return;
+  if (window.__ARTIFACT__) { $('#csvText').value = csv; $('#csvBox').hidden = false; $('#csvState').textContent = ''; return; }
+  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = `courbes-bci-emcts-v1-${state.model === 'approx' ? 'approche' : 'detaille'}-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+$('#btnCsvCopy').addEventListener('click', () => {
+  const t = $('#csvText'), done = ok => { $('#csvState').textContent = ok ? 'Copié : coller dans un tableur.' : 'Copie refusée : le texte est sélectionné, utiliser Ctrl+C.'; };
+  try { navigator.clipboard.writeText(t.value).then(() => done(true), () => { t.select(); done(false); }); } catch (e) { t.select(); done(false); }
+});
+$('#btnCsvClose').addEventListener('click', () => { $('#csvBox').hidden = true; });
 $('#btnImport').addEventListener('click', () => { closeFileMenu(); $('#fileImport').click(); });
 $('#fileImport').addEventListener('change', async e => {
   const f = e.target.files[0]; if (!f) return;

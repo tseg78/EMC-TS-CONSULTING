@@ -26,21 +26,34 @@ La configuration courante est conservée dans le navigateur. Les boutons « Expo
 
 STATUT DU MODÈLE
 Modèle EMC TS CONSULTING en cours de validation. Le bouton « Lancer les vérifications du moteur »
-(fenêtre Résultat) exécute sept contrôles analytiques. Les résultats doivent être confrontés à des mesures
+(fenêtre Résultat) exécute dix contrôles analytiques. Les résultats doivent être confrontés à des mesures
 avant toute utilisation comme exigence. Hypothèses détaillées dans la fenêtre Résultat.
 
 DEUX MODES DE CALCUL
 - Approché (par défaut) : le courant BCI total se répartit entre les fils selon les charges amont et aval
   de chacun. Harnais (5 cm du plan d'essai) et câblage interne (hauteur conducteur–châssis saisie) sont des
   lignes avec leur capacité parasite : les résonances apparaissent. Couplages entre fils négligés (majorant).
+  Résistance linéique des conducteurs (cuivre, effet de peau) prise en compte par défaut dans les deux modes ;
+  elle peut être négligée dans la fenêtre Harnais.
 - Détaillé : lignes multiconductrices (géométrie du toron, position de la pince, pince calibrée), pour
   examiner les résonances du faisceau.
 
 UTILISATION
 À chaque ouverture, les blocs du synoptique sont blancs : les valeurs saisies sont conservées, mais chaque bloc
 doit être relu puis appliqué. Un bloc passe au vert après « Appliquer » si ses paramètres sont complets.
+Nombre de conducteurs : 60 au plus en mode approché, 40 en mode détaillé. Pour saisir vite de nombreux fils
+identiques : les fils ajoutés reprennent la terminaison du dernier fil signal ou alimentation, et le bouton
+« Copier vers tous les fils … » recopie une terminaison, un filtre ou une charge sur les fils de même fonction.
 Le câblage interne est optionnel : absent par défaut (connecteur relié directement à la carte), il n'entre dans
 le calcul que s'il est déclaré présent. Le résultat est disponible quand tous les blocs requis sont verts.
+
+CHARGES RÉSISTIVES RÉELLES
+Pour une terminaison ou une charge carte de type R, deux champs facultatifs décrivent la résistance réelle :
+inductance parasite série (nH) et capacité parasite parallèle (pF). Z = (R + jωLs) // Cp. Case vide = non modélisée.
+
+EXPORT DES COURBES (fenêtre Résultat)
+« Exporter les courbes (CSV) » : fréquence, courant total, f.é.m. requise, puis pour chaque fil le courant et la
+tension sur la charge carte (V et dBµV). Format tableur français : séparateur « ; », virgule décimale, UTF-8.
 
 MENU FICHIER (en haut à droite)
 - Exporter : enregistre toute la configuration (niveaux, modèle, fils, filtres, charges) dans un fichier JSON,
